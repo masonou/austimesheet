@@ -1,5 +1,55 @@
 @import "tailwindcss";
 
+.device-section {
+  padding: 1.4rem;
+  margin-block: 1rem;
+}
+.kiosk-form {
+  display: grid;
+  gap: 0.8rem;
+  margin-block: 0.8rem;
+}
+.kiosk-form label {
+  display: grid;
+  gap: 0.35rem;
+}
+.kiosk-form select {
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+}
+.pin-editor {
+  width: min(100%, 24rem);
+}
+.issued-pin {
+  display: block;
+  font: 2rem monospace;
+  letter-spacing: 0.2em;
+}
+.kiosk-time {
+  display: block;
+  font-size: clamp(2.8rem, 7vw, 4.3rem);
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.clock-step {
+  border-top: 1px solid var(--border);
+  padding-top: 1.5rem;
+  margin-top: 1.5rem;
+}
+.clock-step .kiosk-heading {
+  font-size: 2rem;
+}
+.clock-step .pin-field {
+  text-align: center;
+  font-size: 2rem;
+  letter-spacing: 0.4em;
+}
+.clock-step .button {
+  min-height: 58px;
+  font-size: 1.15rem;
+}
+
 :root {
   --background: #f7f8f4;
   --foreground: #172e28;

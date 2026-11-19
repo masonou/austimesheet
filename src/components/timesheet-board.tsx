@@ -9,6 +9,7 @@ import {
   Hourglass,
 } from "lucide-react";
 import type { Role } from "@/lib/workspace";
+import { PinEditor } from "./pin-editor";
 import {
   dayLabel,
   elapsed,
@@ -19,7 +20,7 @@ import {
   type Week,
 } from "@/lib/timesheets";
 
-export function StaffList({ staff }: { staff: Staff[] }) {
+export function StaffList({ staff, org }: { staff: Staff[]; org?: string }) {
   return (
     <>
       <p className="eyebrow">
@@ -40,6 +41,13 @@ export function StaffList({ staff }: { staff: Staff[] }) {
             >
               {person.active ? "Active" : "Archived"}
             </span>
+            {org && person.active && (
+              <PinEditor
+                org={org}
+                employee={person.id}
+                name={person.display_name}
+              />
+            )}
           </div>
         ))}
         {!staff.length && <p className="empty">No employees yet.</p>}
@@ -105,7 +113,7 @@ export function TimesheetBoard({
     date +
     (selected ? "&employee=" + encodeURIComponent(selected) : "");
   const finishLabel = (s: Session) => {
-    if (!s.ended_at) return "Open";
+    if (!s.ended_at) return "Currently working";
     const endDay = dayLabel(s.ended_at, zone);
     return (
       timeLabel(s.ended_at, zone) +

@@ -75,6 +75,7 @@ export function elapsed(session: Session, week?: Week) {
 
 export function hours(ms: number) {
   const mins = Math.round(ms / 60000);
+  if (ms > 0 && mins === 0) return "<1m";
   return (
     Math.floor(mins / 60) + "h" + (mins % 60 ? " " + (mins % 60) + "m" : "")
   );

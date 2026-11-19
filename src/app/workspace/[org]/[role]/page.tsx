@@ -2,7 +2,8 @@ import { WorkspaceShell } from "@/components/workspace-shell";
 import { StaffList, TimesheetBoard } from "@/components/timesheet-board";
 import { getWeek } from "@/lib/timesheets";
 import { requireWorkspace } from "@/lib/workspace";
-import { readRecords } from "@/lib/records";
+import { readPages, readRecords } from "@/lib/records";
+import { KioskAdmin, type Device } from "@/components/kiosk-admin";
 
 export default async function Dashboard({
   params,
@@ -24,6 +25,29 @@ export default async function Dashboard({
   );
   const base = "/workspace/" + route.org + "/" + role;
   const directory = role === "admin" && query.view === "staff";
+  if (role === "admin" && query.view === "kiosks") {
+    const devices = await readPages<Device>((from, to) =>
+      client
+        .from("kiosk_devices")
+        .select("id,name,activated_at,expires_at,revoked_at", {
+          count: "exact",
+        })
+        .eq("organisation_id", route.org)
+        .order("name")
+        .order("id")
+        .range(from, to),
+    );
+    return (
+      <WorkspaceShell {...{ name, role, base }} kiosks>
+        <KioskAdmin
+          org={route.org}
+          devices={devices}
+          zone={zone}
+          asOf={new Date().getTime()}
+        />
+      </WorkspaceShell>
+    );
+  }
   const { staff, sessions } = await readRecords(
     client,
     route.org,
@@ -33,7 +57,7 @@ export default async function Dashboard({
   return (
     <WorkspaceShell {...{ name, role, base, directory }}>
       {directory ? (
-        <StaffList staff={staff} />
+        <StaffList staff={staff} org={route.org} />
       ) : (
         <TimesheetBoard
           {...{ role, staff, sessions, week, zone, base }}

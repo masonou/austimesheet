@@ -2,7 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Staff, Session, Week } from "./timesheets";
 
-async function readPages<T>(
+export async function readPages<T>(
   read: (
     from: number,
     to: number,

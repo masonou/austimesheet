@@ -19,6 +19,7 @@ export function WorkspaceShell({
   base,
   sample = false,
   directory = false,
+  kiosks = false,
 }: {
   children: React.ReactNode;
   name: string;
@@ -26,6 +27,7 @@ export function WorkspaceShell({
   base: string;
   sample?: boolean;
   directory?: boolean;
+  kiosks?: boolean;
 }) {
   return (
     <div className="workspace">
@@ -64,7 +66,10 @@ export function WorkspaceShell({
             </div>
           </div>
           <nav aria-label="Workspace">
-            <Link href={base} aria-current={!directory ? "page" : undefined}>
+            <Link
+              href={base}
+              aria-current={!directory && !kiosks ? "page" : undefined}
+            >
               <CalendarDays size={18} /> Timesheets
             </Link>
             {role === "admin" && (
@@ -75,8 +80,14 @@ export function WorkspaceShell({
                 <Users size={18} /> Employees
               </Link>
             )}
-            <Link href="/kiosk">
-              <Monitor size={18} /> Workplace kiosk
+            <Link
+              href={
+                role === "admin" && !sample ? base + "?view=kiosks" : "/kiosk"
+              }
+              aria-current={kiosks ? "page" : undefined}
+            >
+              <Monitor size={18} />{" "}
+              {role === "admin" && !sample ? "Kiosks" : "Workplace kiosk"}
             </Link>
           </nav>
           {sample && (
