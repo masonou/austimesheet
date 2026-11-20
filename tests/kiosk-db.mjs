@@ -4,12 +4,33 @@ import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 
 // A fresh in-memory Postgres with the Auth roles/auth.uid contract used by RLS.
-export async function testDatabase() {
+export const upgradeFile = "20261120000100_profiles_pairing_attendance.sql";
+export async function applyUpgrade(db) {
+  await applyProfiles(db);
+  await db.exec(
+    await readFile(
+      new URL(
+        "../supabase/migrations/20261120000200_direct_kiosk.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+}
+async function applyProfiles(db) {
+  await db.exec(
+    await readFile(
+      new URL("../supabase/migrations/" + upgradeFile, import.meta.url),
+      "utf8",
+    ),
+  );
+}
+export async function testDatabase({ legacy = false } = {}) {
   const db = new PGlite({ extensions: { btree_gist } });
   await db.exec(`
     create schema auth; create schema extensions;
     create role anon; create role authenticated; create role service_role;
-    create table auth.users(id uuid primary key);
+    create table auth.users(id uuid primary key,email text);
     create function auth.uid() returns uuid language sql stable as $$
       select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid
     $$;
@@ -26,6 +47,7 @@ export async function testDatabase() {
       ),
     );
   }
+  if (!legacy) await applyUpgrade(db);
   return db;
 }
 

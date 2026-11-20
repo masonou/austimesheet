@@ -7,6 +7,9 @@ export async function serverClient() {
   const jar = await cookies();
   const { url, key } = supabaseConfig();
   return createServerClient(url, key, {
+    global: {
+      fetch: (url, init) => fetch(url, { ...init, cache: "no-store" }),
+    },
     cookies: {
       getAll: () => jar.getAll(),
       setAll(updates) {

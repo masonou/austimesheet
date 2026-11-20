@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { notFound, redirect } from "next/navigation";
 import { serverClient } from "./supabase/server";
+import { registeredHere } from "./kiosk/server";
 
 export type Role = "admin" | "employee";
 export type Membership = {
@@ -13,6 +14,7 @@ export const getAccount = cache(async () => {
   const client = await serverClient();
   const { data, error } = await client.auth.getClaims();
   if (error || !data?.claims.sub) redirect("/");
+  if (await registeredHere()) redirect("/kiosk?exit=1");
   const memberships = await client
     .from("organisation_memberships")
     .select("role, organisations!inner(id, name, timezone)")

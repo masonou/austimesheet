@@ -9,7 +9,6 @@ import {
   Hourglass,
 } from "lucide-react";
 import type { Role } from "@/lib/workspace";
-import { PinEditor } from "./pin-editor";
 import {
   dayLabel,
   elapsed,
@@ -35,19 +34,23 @@ export function StaffList({ staff, org }: { staff: Staff[]; org?: string }) {
         </div>
         {staff.map((person) => (
           <div className="directory-row" key={person.id}>
-            <Person name={person.display_name} />
+            {org ? (
+              <Link
+                className="employee-link"
+                href={
+                  "/workspace/" + org + "/admin?view=staff&person=" + person.id
+                }
+              >
+                <Person name={person.display_name} />
+              </Link>
+            ) : (
+              <Person name={person.display_name} />
+            )}
             <span
               className={"status " + (person.active ? "reviewed" : "archived")}
             >
               {person.active ? "Active" : "Archived"}
             </span>
-            {org && person.active && (
-              <PinEditor
-                org={org}
-                employee={person.id}
-                name={person.display_name}
-              />
-            )}
           </div>
         ))}
         {!staff.length && <p className="empty">No employees yet.</p>}

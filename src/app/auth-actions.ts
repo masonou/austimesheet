@@ -2,8 +2,10 @@
 
 import { redirect } from "next/navigation";
 import { serverClient } from "@/lib/supabase/server";
+import { registeredHere } from "@/lib/kiosk/server";
 
 export async function signIn(_: string, form: FormData) {
+  if (await registeredHere()) redirect("/kiosk?exit=1");
   const email = form.get("email");
   const password = form.get("password");
   if (

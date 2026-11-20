@@ -4,17 +4,15 @@ import { revalidatePath } from "next/cache";
 import { requireWorkspace } from "@/lib/workspace";
 import {
   newPin,
-  newToken,
+  openPin,
+  sealPin,
   pinVerifier,
-  tokenDigest,
   validPin,
 } from "@/lib/kiosk/crypto";
 import {
-  deviceDigest,
+  encryptionKey,
   pinKey,
-  kioskClient,
   sameOrigin,
-  saveDevice,
   validUuid,
 } from "@/lib/kiosk/server";
 
@@ -22,7 +20,7 @@ export async function assignPin(
   org: string,
   employee: string,
   choice: string | null,
-): Promise<{ error?: string; pin?: string }> {
+): Promise<{ error?: string }> {
   if (!(await sameOrigin()) || !validUuid(org) || !validUuid(employee))
     return { error: "Request unavailable." };
   const { client } = await requireWorkspace(org, "admin");
@@ -31,12 +29,16 @@ export async function assignPin(
   try {
     for (let attempt = 0; attempt < 5; attempt++) {
       const pin = choice ?? newPin();
-      const { error } = await client.rpc("assign_employee_pin", {
+      const { error } = await client.rpc("set_employee_pin", {
         org,
         employee,
         pin_verifier: await pinVerifier(org, pin, pinKey()),
+        envelope: sealPin(org, employee, pin, encryptionKey()),
       });
-      if (!error) return { pin };
+      if (!error) {
+        revalidatePath("/workspace/" + org + "/admin");
+        return {};
+      }
       if (error.code !== "23505") break;
       if (choice !== null)
         return { error: "That PIN is already assigned. Choose another." };
@@ -50,40 +52,54 @@ export async function assignPin(
   };
 }
 
-export async function activateDevice(org: string, name: string) {
-  if (
-    !(await sameOrigin()) ||
-    !validUuid(org) ||
-    typeof name !== "string" ||
-    !name.trim() ||
-    name.trim().length > 80
-  )
-    return { error: "Enter a kiosk name of up to 80 characters." };
-  const { client } = await requireWorkspace(org, "admin");
+export async function revealPin(
+  org: string,
+  employee: string,
+): Promise<{ pin?: string; error?: string }> {
+  if (!(await sameOrigin()) || !validUuid(org) || !validUuid(employee))
+    return { error: "Request unavailable." };
+  const { client, userId } = await requireWorkspace(org, "admin");
   try {
-    pinKey();
-    kioskClient();
-    const token = newToken();
-    const { error } = await client.rpc("activate_kiosk", {
+    const { data: user, error: authError } = await client.auth.getUser();
+    if (authError || user.user?.id !== userId)
+      return { error: "Sign in again to reveal a PIN." };
+    const key = encryptionKey();
+    const { data, error } = await client.rpc("read_employee_pin", {
       org,
-      device_name: name.trim(),
-      credential_digest: tokenDigest(token),
-      previous_digest: await deviceDigest(),
+      employee,
     });
-    if (error) throw new Error();
-    await saveDevice(token);
-    const signedOut = await client.auth.signOut({ scope: "local" });
-    if (signedOut.error)
-      return {
-        error:
-          "Kiosk activated. Sign out before leaving this device with staff.",
-      };
+    if (error || !data) throw new Error();
+    return { pin: openPin(org, employee, data, key) };
   } catch {
     return {
       error:
-        "Activation could not be confirmed. Check the kiosk list and server configuration.",
+        "PIN unavailable. Check the encryption key or reset this employee’s PIN.",
     };
   }
+}
+
+export async function renameEmployee(
+  org: string,
+  employee: string,
+  name: string,
+) {
+  if (
+    !(await sameOrigin()) ||
+    !validUuid(org) ||
+    !validUuid(employee) ||
+    typeof name !== "string" ||
+    !name.trim() ||
+    name.trim().length > 120
+  )
+    return { error: "Enter a name of up to 120 characters." };
+  const { client } = await requireWorkspace(org, "admin");
+  const { error } = await client.rpc("rename_employee", {
+    org,
+    employee,
+    new_name: name.trim(),
+  });
+  if (error) return { error: "Could not update the employee name." };
+  revalidatePath("/workspace/" + org + "/admin");
   return { error: "" };
 }
 

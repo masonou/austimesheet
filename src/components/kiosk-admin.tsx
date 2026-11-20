@@ -1,9 +1,7 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import { activateDevice, revokeDevice } from "@/app/workspace/kiosk-actions";
-import { Input } from "./ui/input";
-import { Button } from "./ui/button";
+import { useState } from "react";
+import { revokeDevice } from "@/app/workspace/kiosk-actions";
 
 export type Device = {
   id: string;
@@ -11,6 +9,7 @@ export type Device = {
   activated_at: string | null;
   expires_at: string | null;
   revoked_at: string | null;
+  last_seen_at: string | null;
 };
 
 export function KioskAdmin({
@@ -27,22 +26,7 @@ export function KioskAdmin({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [confirm, setConfirm] = useState("");
-  async function activate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (busy) return;
-    const name = String(new FormData(event.currentTarget).get("name") ?? "");
-    setBusy(true);
-    setMessage("");
-    try {
-      const result = await activateDevice(org, name);
-      if (result.error) setMessage(result.error);
-      else window.location.replace("/kiosk");
-    } catch {
-      setMessage("Activation could not be confirmed. Check your kiosk list.");
-    } finally {
-      setBusy(false);
-    }
-  }
+
   async function revoke(id: string) {
     setBusy(true);
     setMessage("");
@@ -63,27 +47,9 @@ export function KioskAdmin({
       </p>
       <h1>Kiosks</h1>
       <p className="lead">
-        Activate this browser for staff attendance or revoke a registered kiosk.
+        To activate a workplace device, open /kiosk on that device and sign in
+        there as an administrator.
       </p>
-      <section className="panel device-section">
-        <h2>Activate this browser</h2>
-        <form method="post" className="kiosk-form" onSubmit={activate}>
-          <label>
-            Kiosk name
-            <Input
-              name="name"
-              maxLength={80}
-              required
-              placeholder="Front Counter Tablet"
-            />
-          </label>
-          <small>
-            Activation lasts 30 days and signs your staff account out of this
-            browser.
-          </small>
-          <Button disabled={busy}>Activate and sign out</Button>
-        </form>
-      </section>
       {message && (
         <p className="device-section" role="status">
           {message}
@@ -110,12 +76,14 @@ export function KioskAdmin({
                 <strong>{d.name}</strong>
                 <p>
                   {status}
-                  {active &&
-                    " · Expires " +
+                  {d.last_seen_at &&
+                    " · Last active " +
                       new Intl.DateTimeFormat("en-AU", {
                         timeZone: zone,
                         dateStyle: "medium",
-                      }).format(new Date(d.expires_at!))}
+                        timeStyle: "short",
+                      }).format(new Date(d.last_seen_at))}
+                  {!d.last_seen_at && " · Awaiting device check-in"}
                 </p>
               </div>
               {active &&

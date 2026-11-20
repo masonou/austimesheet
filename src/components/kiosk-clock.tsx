@@ -1,103 +1,299 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
-import { verifyPin, recordAttendance } from "@/app/kiosk/actions";
-import { Button } from "./ui/button";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { CircleCheck } from "lucide-react";
+import {
+  checkClockResult,
+  clockWithPin,
+  connectKiosk,
+  authoriseKiosk,
+} from "@/app/kiosk/actions";
 import { Input } from "./ui/input";
+import { Button } from "./ui/button";
 
-type Result =
-  | Awaited<ReturnType<typeof verifyPin>>
-  | Awaited<ReturnType<typeof recordAttendance>>;
+type Connection = Awaited<ReturnType<typeof connectKiosk>>;
+type Result = Awaited<ReturnType<typeof clockWithPin>>;
 
-export function KioskClock({
-  name,
-  zone,
-  initialTime,
-  initialChallenge,
-  locked,
+export function KioskScreen() {
+  const [connection, setConnection] = useState<Connection | null>(null);
+  useEffect(() => {
+    let stopped = false;
+    let timer: number;
+    async function poll() {
+      let reply: Connection;
+      try {
+        reply = await connectKiosk();
+      } catch {
+        reply = { status: "offline" };
+      }
+      if (stopped) return;
+      setConnection((old) =>
+        reply.status === "offline" && old?.status === "active" ? old : reply,
+      );
+      if (reply.status !== "setup")
+        timer = window.setTimeout(
+          poll,
+          reply.status === "active" ? 60000 : 4000,
+        );
+    }
+    void poll();
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, []);
+  const [exit, setExit] = useState(false);
+  if (connection?.status === "active") {
+    if (exit || new URLSearchParams(window.location.search).has("exit"))
+      return (
+        <KioskAuthorisation
+          mode="exit"
+          cancel={() => window.location.replace("/kiosk")}
+        />
+      );
+    return (
+      <>
+        <Clock context={connection} />
+        <button className="quiet-link" onClick={() => setExit(true)}>
+          Exit Kiosk
+        </button>
+      </>
+    );
+  }
+  if (connection?.status === "setup") {
+    if (
+      connection.active &&
+      (exit || new URLSearchParams(window.location.search).has("exit"))
+    )
+      return (
+        <KioskAuthorisation
+          mode="exit"
+          cancel={() => window.location.replace("/kiosk")}
+        />
+      );
+    return (
+      <>
+        <KioskAuthorisation mode="activate" reason={connection.reason} />
+        {connection.active && (
+          <button onClick={() => setExit(true)}>Exit Kiosk</button>
+        )}
+      </>
+    );
+  }
+  return (
+    <p role="status">
+      {connection
+        ? "Kiosk connection unavailable. Reconnecting…"
+        : "Connecting to the workplace kiosk…"}
+    </p>
+  );
+}
+
+function KioskAuthorisation({
+  mode,
+  reason,
+  cancel,
 }: {
-  name: string;
-  zone: string;
-  initialTime: string;
-  initialChallenge: string;
-  locked: boolean;
+  mode: "activate" | "exit";
+  reason?: string;
+  cancel?: () => void;
 }) {
-  const [now, setNow] = useState(initialTime);
-  const [challenge, setChallenge] = useState(initialChallenge);
+  const [busy, setBusy] = useState(false),
+    [message, setMessage] = useState("");
+  const [workplaces, setWorkplaces] = useState<{ id: string; name: string }[]>(
+    [],
+  );
+  async function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (busy) return;
+    const fields = new FormData(e.currentTarget);
+    setBusy(true);
+    setMessage("");
+    try {
+      const r = await authoriseKiosk(mode, fields);
+      if (r.workplaces) setWorkplaces(r.workplaces);
+      else if (r.error) setMessage(r.error);
+      else window.location.replace(mode === "exit" ? "/" : "/kiosk");
+    } catch {
+      setMessage("Connection interrupted. Refresh to check the kiosk status.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <h1 className="kiosk-heading">
+        {mode === "exit" ? "Exit Kiosk" : "Activate Kiosk"}
+      </h1>
+      <p>
+        {reason ?? "Enter an administrator password to deactivate this kiosk."}
+      </p>
+      <form
+        className="kiosk-form"
+        method="post"
+        onSubmit={submit}
+        autoComplete="off"
+      >
+        <label>
+          Admin email
+          <Input type="email" name="email" autoComplete="off" required />
+        </label>
+        <label>
+          Password
+          <Input type="password" name="password" autoComplete="off" required />
+        </label>
+        {mode === "activate" && (
+          <label>
+            Kiosk name
+            <Input
+              name="name"
+              defaultValue="Workplace kiosk"
+              maxLength={80}
+              required
+            />
+          </label>
+        )}
+        {!!workplaces.length && (
+          <label>
+            Workplace
+            <select name="org" required defaultValue="">
+              <option value="" disabled>
+                Select a workplace
+              </option>
+              {workplaces.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {message && <p role="alert">{message}</p>}
+        <Button disabled={busy}>
+          {busy
+            ? "Checking…"
+            : mode === "exit"
+              ? "Deactivate kiosk"
+              : "Activate Kiosk"}
+        </Button>
+        {cancel && (
+          <button type="button" disabled={busy} onClick={cancel}>
+            Cancel
+          </button>
+        )}
+      </form>
+    </>
+  );
+}
+
+function Clock({
+  context,
+}: {
+  context: Extract<Connection, { status: "active" }>;
+}) {
+  const [now, setNow] = useState(() => new Date());
   const [result, setResult] = useState<Result | null>(null);
   const [busy, setBusy] = useState(false);
+  const [lookup, setLookup] = useState("");
+  const submitted = useRef("");
+  const requestId = useRef("");
+  const running = useRef(false);
   useEffect(() => {
-    const interval = window.setInterval(
-      () => setNow(new Date().toISOString()),
-      1000,
-    );
-    return () => window.clearInterval(interval);
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
   }, []);
   useEffect(() => {
-    const delay =
-      result?.status === "recorded"
-        ? 3500
-        : result?.status === "ready"
-          ? 45000
-          : 0;
-    if (!delay) return;
-    const timeout = window.setTimeout(() => window.location.reload(), delay);
-    return () => window.clearTimeout(timeout);
+    if (result?.status !== "recorded") return;
+    const t = setTimeout(() => location.reload(), 3000);
+    return () => clearTimeout(t);
   }, [result]);
-  const fmt = (time: string, options: Intl.DateTimeFormatOptions) =>
-    new Intl.DateTimeFormat("en-AU", { timeZone: zone, ...options }).format(
-      new Date(time),
-    );
-  async function verify(event: FormEvent<HTMLFormElement>) {
+  const format = (time: Date, options: Intl.DateTimeFormatOptions) =>
+    time.toLocaleString("en-AU", { timeZone: context.zone, ...options });
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy) return;
+    if (running.current) return;
     const form = event.currentTarget;
     const pin = String(new FormData(form).get("pin") ?? "");
+    submitted.current =
+      result?.status === "error" && result.challenge
+        ? result.challenge
+        : context.challenge;
+    requestId.current = crypto.randomUUID();
+    running.current = true;
+    setBusy(true);
     form.reset();
+    try {
+      setResult(await clockWithPin(pin, submitted.current, requestId.current));
+    } catch {
+      setResult({ status: "uncertain" });
+    } finally {
+      running.current = false;
+      setBusy(false);
+    }
+  }
+  async function check() {
     setBusy(true);
     try {
-      const reply = await verifyPin(pin, challenge);
-      if (reply.status === "error" && reply.challenge)
-        setChallenge(reply.challenge);
-      setResult(reply);
+      const r = await checkClockResult(submitted.current, requestId.current);
+      if (r) setResult(r);
+      else
+        setLookup(
+          "No receipt confirmed. Check again or ask an administrator to check your timesheet.",
+        );
     } catch {
-      setResult({
-        status: "error",
-        message: "Connection lost. Start again to check your status.",
-      });
+      setLookup("Still offline. Check again when the connection returns.");
     } finally {
       setBusy(false);
     }
   }
-  async function record() {
-    if (busy || result?.status !== "ready") return;
-    setBusy(true);
-    try {
-      setResult(await recordAttendance(result.ticket));
-    } catch {
-      setResult({
-        status: "error",
-        message:
-          "Recording could not be confirmed. Start again to check your status.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }
-  const canEnter =
-    !locked && (!result || (result.status === "error" && !!result.challenge));
   return (
-    <main className="kiosk-card">
-      <p className="eyebrow">{name}</p>
-      <strong className="kiosk-time">{fmt(now, { timeStyle: "short" })}</strong>
+    <>
+      <p className="eyebrow">{context.name}</p>
+      <strong className="kiosk-time">
+        {format(now, { timeStyle: "short" })}
+      </strong>
       <p>
-        {fmt(now, { dateStyle: "full" })} · {zone.replaceAll("_", " ")}
+        {format(now, { dateStyle: "full" })} ·{" "}
+        {context.zone.replaceAll("_", " ")}
       </p>
       <div className="clock-step" aria-live="polite">
-        {locked && <p>Too many incorrect PINs. Try again in 10 minutes.</p>}
-        {result?.status === "error" && <p role="alert">{result.message}</p>}
-        {canEnter ? (
-          <form method="post" className="kiosk-form" onSubmit={verify}>
+        {result?.status === "recorded" ? (
+          <>
+            <CircleCheck aria-hidden className="success-mark" />
+            <h1 className="kiosk-heading">
+              {result.firstName} · Clocked {result.action.toUpperCase()}
+            </h1>
+            <p>
+              Recorded at {format(new Date(result.at), { timeStyle: "medium" })}
+            </p>
+          </>
+        ) : result?.status === "uncertain" ? (
+          <>
+            <h1 className="kiosk-heading">Check your clock result</h1>
+            <p>
+              The response was interrupted. Checking reads your receipt without
+              clocking again.
+            </p>
+            <Button disabled={busy} onClick={check}>
+              Check recorded result
+            </Button>
+            <p>{lookup}</p>
+            <button className="quiet-link" onClick={() => location.reload()}>
+              Return to PIN entry
+            </button>
+          </>
+        ) : context.locked ||
+          (result?.status === "error" && !result.challenge) ? (
+          <>
+            <p role="alert">
+              {result?.status === "error"
+                ? result.message
+                : "Too many incorrect PINs. Try again in ten minutes."}
+            </p>
+            <Button onClick={() => location.reload()}>Refresh kiosk</Button>
+          </>
+        ) : (
+          <form method="post" onSubmit={submit} className="kiosk-form">
             <h1 className="kiosk-heading">
               <label htmlFor="attendance-pin">Enter your PIN</label>
             </h1>
@@ -108,44 +304,18 @@ export function KioskClock({
               type="password"
               autoComplete="off"
               inputMode="numeric"
-              pattern="[0-9]{6}"
               maxLength={6}
+              pattern="[0-9]{6}"
               required
               disabled={busy}
             />
-            <Button disabled={busy}>{busy ? "Checking…" : "Continue"}</Button>
-          </form>
-        ) : result?.status === "ready" ? (
-          <div className="kiosk-form">
-            <h1 className="kiosk-heading">{result.firstName}</h1>
-            <p>
-              {result.action === "in"
-                ? "You are clocked out."
-                : "You are currently working."}
-            </p>
-            <Button disabled={busy} onClick={record}>
-              {busy
-                ? "Recording…"
-                : result.action === "in"
-                  ? "Clock In"
-                  : "Clock Out"}
+            {result?.status === "error" && <p role="alert">{result.message}</p>}
+            <Button disabled={busy}>
+              {busy ? "Recording…" : "Clock In / Out"}
             </Button>
-            <button disabled={busy} onClick={() => window.location.reload()}>
-              Cancel
-            </button>
-          </div>
-        ) : result?.status === "recorded" ? (
-          <>
-            <h1 className="kiosk-heading">
-              Clocked {result.action} at{" "}
-              {fmt(result.at, { timeStyle: "short" })}
-            </h1>
-            <p>Attendance recorded.</p>
-          </>
-        ) : (
-          <Button onClick={() => window.location.reload()}>Start again</Button>
+          </form>
         )}
       </div>
-    </main>
+    </>
   );
 }

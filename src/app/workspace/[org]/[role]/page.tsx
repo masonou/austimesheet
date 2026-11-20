@@ -4,6 +4,9 @@ import { getWeek } from "@/lib/timesheets";
 import { requireWorkspace } from "@/lib/workspace";
 import { readPages, readRecords } from "@/lib/records";
 import { KioskAdmin, type Device } from "@/components/kiosk-admin";
+import { EmployeeProfile } from "@/components/employee-profile";
+import { validUuid } from "@/lib/kiosk/server";
+import { notFound } from "next/navigation";
 
 export default async function Dashboard({
   params,
@@ -25,11 +28,25 @@ export default async function Dashboard({
   );
   const base = "/workspace/" + route.org + "/" + role;
   const directory = role === "admin" && query.view === "staff";
+  if (directory && query.person) {
+    if (!validUuid(query.person)) notFound();
+    const { data: profile, error } = await client.rpc("employee_profile", {
+      org: route.org,
+      employee: query.person,
+    });
+    if (error) throw new Error("Employee profile unavailable.");
+    if (!profile) notFound();
+    return (
+      <WorkspaceShell {...{ name, role, base }} directory>
+        <EmployeeProfile key={profile.id} org={route.org} profile={profile} />
+      </WorkspaceShell>
+    );
+  }
   if (role === "admin" && query.view === "kiosks") {
     const devices = await readPages<Device>((from, to) =>
       client
         .from("kiosk_devices")
-        .select("id,name,activated_at,expires_at,revoked_at", {
+        .select("id,name,activated_at,expires_at,revoked_at,last_seen_at", {
           count: "exact",
         })
         .eq("organisation_id", route.org)

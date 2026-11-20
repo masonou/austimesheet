@@ -1,5 +1,30 @@
 @import "tailwindcss";
 
+.profile-panel {
+  max-width: 44rem;
+}
+.profile-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.profile-line small {
+  color: var(--muted-foreground);
+}
+.employee-link:hover {
+  text-decoration: underline;
+}
+.success-mark {
+  color: var(--primary);
+  width: 3rem;
+  height: 3rem;
+  margin: 0 auto 0.75rem;
+}
+
 .device-section {
   padding: 1.4rem;
   margin-block: 1rem;
@@ -17,9 +42,6 @@
   padding: 0.5rem;
   border: 1px solid var(--border);
   border-radius: 0.45rem;
-}
-.pin-editor {
-  width: min(100%, 24rem);
 }
 .issued-pin {
   display: block;
