@@ -56,6 +56,17 @@ export async function browserFixture() {
     };
   }
   const signatures = {
+    manage_work_session: [
+      "org",
+      "employee",
+      "session_id",
+      "operation",
+      "expected_revision",
+      "start_time",
+      "finish_time",
+      "session_note",
+      "change_reason",
+    ],
     kiosk_restaurant: ["restaurant_slug"],
     employee_profile: ["org", "employee"],
     read_employee_pin: ["org", "employee"],
@@ -151,9 +162,38 @@ export async function browserFixture() {
           ),
         );
       }
-      if (!["employees", "kiosk_devices", "work_sessions"].includes(name))
+      if (
+        ![
+          "employees",
+          "kiosk_devices",
+          "work_sessions",
+          "timesheet_edit_history",
+        ].includes(name)
+      )
         return send(404, {});
-      const rows = await roleQuery(db, role, user?.id, "select * from " + name);
+      const params = new URL(req.url, "http://localhost").searchParams;
+      const sessionId = params.get("session_id")?.slice(3);
+      let rows;
+      if (name === "timesheet_edit_history")
+        rows = await roleQuery(
+          db,
+          role,
+          user?.id,
+          "select * from timesheet_edit_history where session_id=$1 order by changed_at desc",
+          [sessionId],
+        );
+      else if (name === "work_sessions") {
+        const end = params.get("started_at")?.slice(3);
+        const start = params.get("or")?.match(/ended_at\.gt\.([^,)]+)/)?.[1];
+        rows = await roleQuery(
+          db,
+          role,
+          user?.id,
+          "select * from work_sessions where started_at<$1 and (ended_at>$2 or (ended_at is null and (voided_at is null or started_at>=$2))) order by started_at",
+          [end, start],
+        );
+      } else
+        rows = await roleQuery(db, role, user?.id, "select * from " + name);
       res.setHeader(
         "content-range",
         rows.length ? "0-" + (rows.length - 1) + "/" + rows.length : "*/0",

@@ -81,6 +81,7 @@ export default async function Dashboard({
         <StaffList staff={staff} org={route.org} />
       ) : (
         <TimesheetBoard
+          org={role === "admin" ? route.org : undefined}
           {...{ role, staff, sessions, week, zone, base }}
           employee={
             typeof query.employee === "string" ? query.employee : undefined

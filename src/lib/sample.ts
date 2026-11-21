@@ -24,6 +24,9 @@ function shift(
     ended_at,
     reviewed_at: reviewed ? ended_at : null,
     note,
+    revision: 1,
+    voided_at: null,
+    created_by: null,
   };
 }
 export const sampleSessions = [

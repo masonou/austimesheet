@@ -8,6 +8,9 @@ export type Session = {
   ended_at: string | null;
   reviewed_at: string | null;
   note: string | null;
+  revision: number;
+  voided_at: string | null;
+  created_by: string | null;
 };
 export type Week = ReturnType<typeof getWeek>;
 
@@ -60,23 +63,82 @@ export function dayLabel(value: string, zone: string) {
   }).format(new Date(value));
 }
 
-export function elapsed(session: Session, week?: Week) {
-  if (!session.ended_at) return 0;
-  const start = Date.parse(session.started_at),
-    end = Date.parse(session.ended_at);
-  return week
-    ? Math.max(
-        0,
-        Math.min(end, Date.parse(week.end)) -
-          Math.max(start, Date.parse(week.start)),
-      )
-    : end - start;
+export function elapsed(
+  session: Pick<Session, "started_at" | "ended_at"> & {
+    voided_at?: string | null;
+  },
+  week?: Week,
+) {
+  if (!session.ended_at || session.voided_at) return 0;
+  const start = Temporal.Instant.from(session.started_at);
+  const end = Temporal.Instant.from(session.ended_at);
+  const lo =
+    week && Temporal.Instant.compare(start, week.start) < 0
+      ? Temporal.Instant.from(week.start)
+      : start;
+  const hi =
+    week && Temporal.Instant.compare(end, week.end) > 0
+      ? Temporal.Instant.from(week.end)
+      : end;
+  return Math.max(0, Number(hi.epochNanoseconds - lo.epochNanoseconds) / 1e6);
 }
 
 export function hours(ms: number) {
-  const mins = Math.round(ms / 60000);
-  if (ms > 0 && mins === 0) return "<1m";
-  return (
-    Math.floor(mins / 60) + "h" + (mins % 60 ? " " + (mins % 60) + "m" : "")
+  if (ms > 0 && ms < 1000) return "<1s";
+  const seconds = Math.round(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  return [
+    Math.floor(minutes / 60) + "h",
+    minutes % 60 ? (minutes % 60) + "m" : "",
+    seconds % 60 ? (seconds % 60) + "s" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+export function shiftField(instant: string, zone: string) {
+  return Temporal.Instant.from(instant)
+    .toZonedDateTimeISO(zone)
+    .toPlainDateTime()
+    .toString({ smallestUnit: "second" });
+}
+
+// During a spring-forward gap there is no such instant. A repeated autumn time
+// has two valid offsets. Preserve subsecond kiosk precision on untouched fields.
+export function shiftChoices(
+  value: string,
+  zone: string,
+  original?: string | null,
+) {
+  if (!value) return [];
+  let local: Temporal.PlainDateTime;
+  try {
+    local = Temporal.PlainDateTime.from(value);
+  } catch {
+    return [];
+  }
+  const choices = (["earlier", "later"] as const).map((disambiguation) =>
+    local.toZonedDateTime(zone, {
+      disambiguation,
+    }),
   );
+  const source = original
+    ? Temporal.Instant.from(original).toZonedDateTimeISO(zone)
+    : null;
+  return choices
+    .filter(
+      (v, i) =>
+        v.toPlainDateTime().equals(local) &&
+        (i === 0 || v.offset !== choices[0].offset),
+    )
+    .map((v) => ({
+      offset: v.offset,
+      instant:
+        original &&
+        source &&
+        source.offset === v.offset &&
+        local.equals(shiftField(original, zone))
+          ? original
+          : v.toInstant().toString(),
+    }));
 }

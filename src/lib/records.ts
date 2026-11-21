@@ -37,12 +37,17 @@ export async function readRecords(
   const sessions = await readPages<Session>((from, to) => {
     let q = client
       .from("work_sessions")
-      .select("id, employee_id, started_at, ended_at, reviewed_at, note", {
-        count: "exact",
-      })
+      .select(
+        "id, employee_id, started_at, ended_at, reviewed_at, note, revision, voided_at, created_by",
+        {
+          count: "exact",
+        },
+      )
       .eq("organisation_id", org)
       .lt("started_at", week.end)
-      .or("ended_at.is.null,ended_at.gt." + week.start);
+      .or(
+        `ended_at.gt.${week.start},and(ended_at.is.null,or(voided_at.is.null,started_at.gte.${week.start}))`,
+      );
     if (userId) q = q.eq("employee_id", staff[0].id);
     return q.order("started_at").order("id").range(from, to);
   });

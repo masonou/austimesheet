@@ -24,9 +24,28 @@ Open [localhost:3000](http://localhost:3000). Keep the existing `NEXT_PUBLIC_SUP
 
 The weekly window runs from local Monday midnight up to the following Monday. Each session shows its full elapsed duration. Weekly totals count only the portion of completed sessions inside that week, including over midnight and daylight-saving transitions. Open sessions appear as open and accrue no displayed total until closed.
 
+## Phase 3A timesheet management
+
+**Upgrade an existing Phase 2 workplace.** In the target Supabase project's **SQL Editor → New query**, paste and run the complete [Phase 3A migration](supabase/migrations/20261121000200_timesheet_management.sql) once as the database owner. Use this read-only check first if unsure whether it has run:
+
+```sql
+select to_regprocedure('public.manage_work_session(uuid,uuid,uuid,text,bigint,timestamptz,timestamptz,text,text)') is not null as phase_3a_installed;
+```
+
+If the result is true, skip the migration. Deploy or restart the application after applying the SQL. Use the existing environment variables. The migration extends the original session and audit tables and replaces the overlap constraint inside a transaction. Apply it during a quiet interval, because PostgreSQL locks the sessions table while rebuilding the constraint. Existing clock receipts, device attribution, review information and legacy edit history are preserved.
+
+**Try a correction in a test workplace.**
+
+1. Sign in as an administrator, navigate to the week containing **19 November 2026**, and choose **Add session**. Select an employee, set **17:00** and **22:30** on that date, and enter the reason **Missed clock-in**. Use a past interval free of other sessions. Verify **Manual entry**, **Pending** and a **5h 30m** contribution to the weekly total.
+2. Open the row and select **Mark Reviewed**. Open it again and choose **Reopen for correction**. The editor opens immediately. Change the finish to **23:00**, add a note and enter the correction reason. Saving adds 30 minutes to the weekly total.
+3. Open **Change history** to see the original values, corrections, reasons, timestamps and administrator identifiers. Mark the session Reviewed again. Refresh the employee's personal timesheet for that week to see **6h**, the updated note and **Reviewed**.
+4. To cancel a mistaken record, reopen it if reviewed, then select **Void session** and confirm with a reason. The row and history stay visible. Its hours and count are excluded from the totals, and the employee can record another shift in that interval.
+
+Dates in the editor use the workplace timezone. For a repeated time at the end of daylight saving, select the intended UTC offset. A skipped local time is unavailable. Weekly totals sum elapsed time within local Monday-to-Monday boundaries at stored timestamp precision. The hours label displays to the nearest second. An open session can be corrected or completed and becomes eligible for review once it has a finish time. If another administrator or a kiosk has already changed a session, reopen its details before editing again.
+
 ## Restaurant kiosk rollout
 
-For an existing installation with the first four migrations applied, run **only** [the restaurant kiosk URL migration](supabase/migrations/20261121000100_restaurant_kiosk_urls.sql). In the target Supabase project open **SQL Editor → New query**, paste the complete file, and select **Run** once as the database owner. For a fresh database apply all five files in `supabase/migrations` in filename order.
+For an existing installation with the first four migrations applied, run **only** [the restaurant kiosk URL migration](supabase/migrations/20261121000100_restaurant_kiosk_urls.sql). In the target Supabase project open **SQL Editor → New query**, paste the complete file, and select **Run** once as the database owner. For a fresh database apply all migration files in `supabase/migrations` in filename order.
 
 The migration assigns permanent URL slugs to existing and future restaurants. Duplicate names receive numeric suffixes, reserved routes are skipped, and names without usable characters receive a fallback. Renaming a restaurant keeps its original URL. To check the result in SQL Editor, run `select name, slug from public.organisations order by name, slug;`. Existing devices and attendance keep their organisation IDs.
 
@@ -132,7 +151,7 @@ Use your business’s IANA timezone, for example `Australia/Sydney`, `Australia/
 | `employees` | Own active staff profile for employees. Administrators can read the entire workplace directory, including archived staff and staff without personal logins. |
 | `kiosk_devices` | Workplace administrators only. Stores device metadata, activation, expiry and revocation timestamps. |
 | `work_sessions` | Own sessions for employees, all workplace sessions for administrators. Includes optional notes, clock-device references and review attribution. |
-| `timesheet_edit_history` | Workplace administrators only. Holds before/after times, editor, timestamp and required reason for the future editing operation. |
+| `timesheet_edit_history` | Workplace administrators only. Holds session changes, before/after values, administrator, timestamp and reason. |
 
 All six public tables have RLS enabled and authenticated users have SELECT-only table grants. The private `employee_pins` and `kiosk_credentials` tables have RLS and no client table grants. Administrator mutations use the caller's Supabase session and check active admin membership again inside each function. Only the server's service role can execute the kiosk attendance, receipt and heartbeat RPCs. Those functions require the device digest and derive the organisation from its registration. SQL Editor runs with administrative privileges.
 
@@ -156,7 +175,7 @@ The test suite applies the migrations to disposable PostgreSQL and checks the up
 
 1. Signed out, visit `/workspace`. Expect the sign-in page. Try both public previews, change weeks, and open a restaurant kiosk URL from an unregistered browser.
 2. Sign in as the administrator. Verify the new workplace and employee directory. A newly provisioned workplace has an empty timesheet. Sign out and sign in as the employee in a separate browser profile. The same organisation’s admin URL should return a 404 for that employee.
-3. To check real records, in a test workplace use **Table Editor → work_sessions → Insert row**. Set `organisation_id`, `employee_id`, `started_at` and `ended_at`. Include the UTC offset, for example `2026-11-20T22:00:00+10:00` through `2026-11-21T02:00:00+10:00` in Brisbane. Leave review fields empty for Pending. Navigate to that week. The session should show four hours in both authorised views.
+3. In a test workplace, use **Add session** for a past overnight interval from 22:00 to 02:00 the next day. In Brisbane this contributes four hours across those dates. Verify the entry in both authorised views.
 4. Add another test employee and session. Only the administrator should see both employees’ sessions. Archive the first test employee. Their dashboard should lose access and their historical shift should remain visible to the administrator.
 5. For a tenant check, provision a second test workplace and a different administrator. Sign in as the second administrator and visit the first workplace’s URL. Expect a 404. Each administrator should see only their own workplace in the selector.
 
@@ -171,7 +190,3 @@ The test suite applies the migrations to disposable PostgreSQL and checks the up
 - `supabase/migrations` — ordered schema changes. The application uses the existing Supabase project.
 
 For Vercel, use the Next.js preset and Node 22 or newer. Configure the two origins and the five Supabase and PIN variables and apply the appropriate migrations to the target Supabase project.
-
-## Next phase
-
-Administrator timesheet corrections remain a future phase. Each correction should write the edit and its audit row in one transaction. Reporting, payroll, subscriptions and other HR features remain deferred.

@@ -226,8 +226,27 @@ test("upgrade retains legacy PIN attendance, review status and historical device
         )
       ).rows;
     const historic = await rows();
+    await old.query(
+      "insert into timesheet_edit_history(organisation_id,session_id,changed_by,reason,old_started_at,new_started_at) select organisation_id,id,$1,'Legacy correction',started_at,started_at from work_sessions",
+      [f.admin],
+    );
     await applyUpgrade(old);
-    assert.deepEqual(await rows(), historic);
+    assert.deepEqual(
+      await rows(),
+      historic.map(({ session }) => ({
+        session: { ...session, revision: 1, created_by: null, voided_at: null },
+      })),
+    );
+    const [oldAudit] = (
+      await old.query(
+        "select reason,changed_by,event from timesheet_edit_history",
+      )
+    ).rows;
+    assert.deepEqual(oldAudit, {
+      reason: "Legacy correction",
+      changed_by: f.admin,
+      event: "edit",
+    });
     assert.equal(
       (await call("employee_profile($1,$2)", [f.org, f.employee])).pinStatus,
       "legacy",
@@ -496,4 +515,33 @@ test("application and kiosk actions require their configured host and exact brow
   h.set("host", kiosk.host);
   h.delete("origin");
   assert(!expectedHost(h, "kiosk", true));
+});
+
+test("voiding an open kiosk session retains its receipt and lets the employee clock in again", async () => {
+  const f = await workplace(db),
+    device = await paired(f),
+    verifier = await assign(f);
+  const challenge = (await heartbeat(device)).challenge,
+    request = randomUUID();
+  const original = await clock(device, verifier, challenge, request);
+  const [shift] = (
+    await db.query(
+      "select id,revision from work_sessions where employee_id=$1",
+      [f.employee],
+    )
+  ).rows;
+  await admin(
+    f,
+    "manage_work_session($1,$2,$3,'void',$4,null,null,null,'Incorrect clock-in')",
+    [f.org, f.employee, shift.id, shift.revision],
+  );
+  assert.deepEqual(await receipt(device, challenge, request), original);
+  assert.equal((await clock(device, verifier)).action, "in");
+  const [counts] = (
+    await db.query(
+      "select count(*)::int as total, count(*) filter (where voided_at is null)::int as active from work_sessions where employee_id=$1",
+      [f.employee],
+    )
+  ).rows;
+  assert.deepEqual(counts, { total: 2, active: 1 });
 });

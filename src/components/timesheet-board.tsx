@@ -1,3 +1,7 @@
+"use client";
+
+import { useState } from "react";
+import { SessionDialog, sessionStatus } from "./session-dialog";
 import Link from "next/link";
 import {
   CalendarDays,
@@ -78,10 +82,17 @@ function Person({ name }: { name: string }) {
 function Status({ session }: { session: Session }) {
   return (
     <span
-      className={"status " + (session.reviewed_at ? "reviewed" : "pending")}
+      className={
+        "status " +
+        (session.voided_at
+          ? "archived"
+          : session.reviewed_at
+            ? "reviewed"
+            : "pending")
+      }
     >
       {session.reviewed_at ? <CheckCheck size={14} /> : <Hourglass size={13} />}
-      {session.reviewed_at ? "Reviewed" : "Pending"}
+      {sessionStatus(session)}
     </span>
   );
 }
@@ -94,6 +105,7 @@ export function TimesheetBoard({
   zone,
   base,
   employee,
+  org,
 }: {
   role: Role;
   staff: Staff[];
@@ -102,7 +114,10 @@ export function TimesheetBoard({
   zone: string;
   base: string;
   employee?: string;
+  org?: string;
 }) {
+  const [dialog, setDialog] = useState<Session | "new" | null>(null);
+  const [notice, setNotice] = useState("");
   const admin = role === "admin";
   const selected =
     admin && staff.some((p) => p.id === employee) ? employee : "";
@@ -116,7 +131,7 @@ export function TimesheetBoard({
     date +
     (selected ? "&employee=" + encodeURIComponent(selected) : "");
   const finishLabel = (s: Session) => {
-    if (!s.ended_at) return "Currently working";
+    if (!s.ended_at) return s.voided_at ? "—" : "Currently working";
     const endDay = dayLabel(s.ended_at, zone);
     return (
       timeLabel(s.ended_at, zone) +
@@ -160,7 +175,7 @@ export function TimesheetBoard({
             <CalendarDays />
             Work sessions
           </span>
-          <strong>{rows.length}</strong>
+          <strong>{rows.filter((s) => !s.voided_at).length}</strong>
           <small>Across the selected week</small>
         </div>
         <div className="metric">
@@ -168,10 +183,35 @@ export function TimesheetBoard({
             <Hourglass />
             Pending review
           </span>
-          <strong>{rows.filter((s) => !s.reviewed_at).length}</strong>
+          <strong>
+            {
+              rows.filter((s) => !s.reviewed_at && s.ended_at && !s.voided_at)
+                .length
+            }
+          </strong>
           <small>Awaiting administrator review</small>
         </div>
       </div>
+      {notice && (
+        <p role="status" className="shift-notice">
+          {notice}
+        </p>
+      )}
+      {dialog && org && (
+        <SessionDialog
+          org={org}
+          session={dialog === "new" ? null : dialog}
+          staff={staff}
+          selected={selected || ""}
+          week={week.key}
+          zone={zone}
+          close={() => setDialog(null)}
+          saved={(msg) => {
+            setNotice(msg);
+            setDialog(null);
+          }}
+        />
+      )}
       <section className="panel">
         <div className="section-head">
           <div>
@@ -179,23 +219,36 @@ export function TimesheetBoard({
             <small>{zone.replaceAll("_", " ")}</small>
           </div>
           {admin && (
-            <form className="filter" action={base}>
-              <input type="hidden" name="week" value={week.key} />
-              <select
-                key={selected}
-                name="employee"
-                aria-label="Filter by employee"
-                defaultValue={selected}
-              >
-                <option value="">All employees</option>
-                {staff.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.display_name}
-                  </option>
-                ))}
-              </select>
-              <button>Filter</button>
-            </form>
+            <div className="shift-tools">
+              {org && !!staff.length && (
+                <button
+                  className="button"
+                  onClick={() => {
+                    setNotice("");
+                    setDialog("new");
+                  }}
+                >
+                  Add session
+                </button>
+              )}
+              <form className="filter" action={base}>
+                <input type="hidden" name="week" value={week.key} />
+                <select
+                  key={selected}
+                  name="employee"
+                  aria-label="Filter by employee"
+                  defaultValue={selected}
+                >
+                  <option value="">All employees</option>
+                  {staff.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.display_name}
+                    </option>
+                  ))}
+                </select>
+                <button>Filter</button>
+              </form>
+            </div>
           )}
         </div>
         {rows.length === 0 ? (
@@ -228,14 +281,48 @@ export function TimesheetBoard({
               </thead>
               <tbody>
                 {rows.map((s) => (
-                  <tr key={s.id}>
+                  <tr
+                    key={s.id}
+                    className={org ? "editable-shift" : undefined}
+                    onClick={
+                      org
+                        ? () => {
+                            setNotice("");
+                            setDialog(s);
+                          }
+                        : undefined
+                    }
+                  >
                     <td>
-                      <Person name={names.get(s.employee_id) ?? "Employee"} />
+                      {org ? (
+                        <button
+                          className="employee-link"
+                          aria-label={
+                            "Open session for " +
+                            names.get(s.employee_id) +
+                            " on " +
+                            dayLabel(s.started_at, zone) +
+                            " at " +
+                            timeLabel(s.started_at, zone)
+                          }
+                        >
+                          <Person
+                            name={names.get(s.employee_id) ?? "Employee"}
+                          />
+                        </button>
+                      ) : (
+                        <Person name={names.get(s.employee_id) ?? "Employee"} />
+                      )}
+                      {s.created_by && (
+                        <small className="manual-label">Manual entry</small>
+                      )}
                     </td>
                     <td>{dayLabel(s.started_at, zone)}</td>
                     <td>{timeLabel(s.started_at, zone)}</td>
                     <td>{finishLabel(s)}</td>
-                    <td>{s.ended_at ? hours(elapsed(s)) : "—"}</td>
+                    <td>
+                      {s.voided_at ? "—" : s.ended_at ? hours(elapsed(s)) : "—"}
+                    </td>
                     <td>
                       <Status session={s} />
                     </td>
@@ -257,7 +344,13 @@ export function TimesheetBoard({
                   <span>
                     {timeLabel(s.started_at, zone)} – {finishLabel(s)}
                   </span>
-                  <b>{s.ended_at ? hours(elapsed(s)) : "Open session"}</b>
+                  <b>
+                    {s.voided_at
+                      ? "Excluded"
+                      : s.ended_at
+                        ? hours(elapsed(s))
+                        : "Open session"}
+                  </b>
                 </div>
                 {s.note && <p>{s.note}</p>}
               </article>

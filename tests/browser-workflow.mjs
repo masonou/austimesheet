@@ -231,8 +231,57 @@ try {
   await kiosk.getByRole("button", { name: "Activate Kiosk" }).waitFor();
   await admin.reload();
   await admin.getByText(/^Revoked/).waitFor();
+  const historical = "?week=2025-11-17";
+  await admin.goto(base + "/workspace/" + fixture.org + "/admin" + historical);
+  await admin.getByRole("button", { name: "Add session" }).click();
+  const modal = admin.getByRole("dialog");
+  await modal
+    .getByLabel("Employee", { exact: true })
+    .selectOption({ label: "Alex Smith" });
+  await modal.getByLabel("Clock in", { exact: true }).fill("2025-11-19T17:00");
+  await modal.getByLabel("Clock out", { exact: true }).fill("2025-11-19T22:30");
+  await modal.getByLabel("Reason for manual entry").fill("Missed clock-in");
+  await modal.getByRole("button", { name: "Add session" }).click();
+  await admin.getByText("Session added.", { exact: true }).waitFor();
+  const row = admin.getByRole("button", { name: /Open session for Alex/ });
+  await row.click();
+  await modal.getByRole("button", { name: "Mark Reviewed" }).click();
+  await admin.getByText("Session marked Reviewed.").waitFor();
+  await row.click();
+  await modal.getByRole("button", { name: "Reopen for correction" }).click();
+  await modal.getByText("Session reopened for correction.").waitFor();
+  await modal.getByLabel("Clock out", { exact: true }).fill("2025-11-19T23:00");
+  await modal.getByLabel("Reason for correction").fill("Confirmed close time");
+  await modal.getByLabel("Note", { exact: true }).fill("Dinner service");
+  await modal.getByRole("button", { name: "Save changes" }).click();
+  await admin.getByText("Session updated.").waitFor();
+  await admin
+    .locator(".metric.primary strong")
+    .filter({ hasText: /^6h$/ })
+    .waitFor();
+  await employee.goto(
+    base + "/workspace/" + fixture.org + "/employee" + historical,
+  );
+  await employee
+    .locator(".metric.primary strong")
+    .filter({ hasText: /^6h$/ })
+    .waitFor();
+  await employee.getByText("Dinner service").waitFor();
+  assert.equal(
+    await employee
+      .getByRole("button", { name: /Edit session|Add session/ })
+      .count(),
+    0,
+  );
+  await row.click();
+  await modal.getByText("Change history").click();
+  await modal.getByText("Confirmed close time").waitFor();
+  await modal.getByRole("button", { name: "Mark Reviewed" }).click();
+  await admin.getByText("Session marked Reviewed.").waitFor();
+  await employee.reload();
+  await employee.getByText("Reviewed", { exact: true }).waitFor();
   console.log(
-    "PASS simultaneous admin and kiosk tabs on isolated hosts, restaurant binding, employee restrictions, persistent reopening, local exit; masked reveal, no-store response, name edit, one-tap attendance, lost-response receipt and revocation.",
+    "PASS simultaneous admin and kiosk tabs on isolated hosts, restaurant binding, employee restrictions, persistent reopening, local exit; one-tap attendance, receipts and revocation; manual session, review, reopen, correction, audit and employee totals.",
   );
 } finally {
   await browser?.close();
