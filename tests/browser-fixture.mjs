@@ -7,6 +7,7 @@ import { testDatabase, workplace, roleQuery } from "./kiosk-db.mjs";
 export async function browserFixture() {
   const db = await testDatabase(),
     f = await workplace(db);
+  await db.query("insert into organisations(name) values ('Harbour Pub')");
   const random = () => randomBytes(32).toString("hex");
   const secret = random(),
     publishable = random(),
@@ -55,12 +56,14 @@ export async function browserFixture() {
     };
   }
   const signatures = {
+    kiosk_restaurant: ["restaurant_slug"],
     employee_profile: ["org", "employee"],
     read_employee_pin: ["org", "employee"],
     set_employee_pin: ["org", "employee", "pin_verifier", "envelope"],
     rename_employee: ["org", "employee", "new_name"],
     register_workplace_kiosk: ["org", "label", "new_digest", "old_digest"],
     exit_workplace_kiosk: ["browser_digest"],
+    rename_kiosk: ["org", "device", "label"],
     revoke_kiosk: ["org", "device"],
     kiosk_context: ["credential_digest"],
     kiosk_heartbeat: ["credential_digest", "successor"],
@@ -143,7 +146,7 @@ export async function browserFixture() {
             db,
             role,
             user?.id,
-            "select m.role,jsonb_build_object('id',o.id,'name',o.name,'timezone',o.timezone) as organisations from organisation_memberships m join organisations o on o.id=m.organisation_id where m.user_id=$1",
+            "select m.role,jsonb_build_object('id',o.id,'name',o.name,'slug',o.slug,'timezone',o.timezone) as organisations from organisation_memberships m join organisations o on o.id=m.organisation_id where m.user_id=$1",
             [user?.id],
           ),
         );

@@ -20,31 +20,36 @@ Open [localhost:3000](http://localhost:3000). Keep the existing `NEXT_PUBLIC_SUP
 | `/workspace/[org]/employee` | Real, read-only weekly sessions for the signed-in employee, with clock times, notes, review state and a weekly total. |
 | `/workspace/[org]/admin` | Workplace sessions, weekly navigation, employee filtering, a staff directory with PIN management, and kiosk status and revocation. |
 | `/preview/admin`, `/preview/employee` | Public, clearly labelled fictional data for Wattle Lane Café. Try the week of 16 November 2026, filter by Ruby for a split shift, or look at Sam’s Friday overnight shift. These routes work before database setup. |
-| `/kiosk` | An administrator activates the browser using their email and password. Returning kiosks open directly at PIN entry. |
+| Kiosk host `/[restaurant-slug]` | Restaurant-specific activation and employee PIN entry. Open the URL from Admin → Kiosks. |
 
 The weekly window runs from local Monday midnight up to the following Monday. Each session shows its full elapsed duration. Weekly totals count only the portion of completed sessions inside that week, including over midnight and daylight-saving transitions. Open sessions appear as open and accrue no displayed total until closed.
 
-## Upgrade your working Phase 2 project
+## Restaurant kiosk rollout
 
-In the target Supabase project's **SQL Editor**, run this read-only query as the database owner. The markers also work when earlier migrations were applied manually in SQL Editor.
+For an existing installation with the first four migrations applied, run **only** [the restaurant kiosk URL migration](supabase/migrations/20261121000100_restaurant_kiosk_urls.sql). In the target Supabase project open **SQL Editor → New query**, paste the complete file, and select **Run** once as the database owner. For a fresh database apply all five files in `supabase/migrations` in filename order.
 
-```sql
-select to_regclass('public.work_sessions') is not null as foundation,
-       to_regclass('timesheet_private.kiosk_credentials') is not null as phase_2,
-       to_regprocedure('public.clock_with_pin(text,uuid,text,uuid)') is not null as phase_2_1,
-       to_regprocedure('public.register_workplace_kiosk(uuid,text,text,text)') is not null as direct_activation;
+The migration assigns permanent URL slugs to existing and future restaurants. Duplicate names receive numeric suffixes, reserved routes are skipped, and names without usable characters receive a fallback. Renaming a restaurant keeps its original URL. To check the result in SQL Editor, run `select name, slug from public.organisations order by name, slug;`. Existing devices and attendance keep their organisation IDs.
+
+### Local development with two tabs
+
+One Next.js process serves both origins. The defaults below work in Chrome on the same computer without DNS or hosts-file edits. To set them explicitly, add these lines to `.env.local`:
+
+```dotenv
+SHIFTBOOK_APP_ORIGIN=http://localhost:3000
+SHIFTBOOK_KIOSK_ORIGIN=http://127.0.0.1:3000
 ```
 
-Apply each missing migration in filename order, opening the **complete file** in a new SQL Editor query and selecting **Run** once. If a later marker is present while an earlier one is missing, inspect the migration history and schema before applying changes.
+1. Apply the migration and start `npm run dev`. If using another port, set both origins to that port and start Next with `npm run dev -- --port PORT`, substituting the port number.
+2. Open `http://localhost:3000`, sign in as an administrator, and select **Kiosks → Open Kiosk**. A second tab opens the exact restaurant URL, for example `http://127.0.0.1:3000/wattle-lane-cafe`.
+3. Enter the administrator credentials, name the device and select **Activate Kiosk**. Leave the PIN screen open and continue using the dashboard in the first tab. A closed kiosk tab resumes when reopened in the same browser profile.
 
-1. [Foundation](supabase/migrations/20261119000100_timesheet_foundation.sql)
-2. [Workplace kiosk](supabase/migrations/20261119000200_workplace_kiosk.sql)
-3. [Phase 2.1 profiles and attendance](supabase/migrations/20261120000100_profiles_pairing_attendance.sql)
-4. [Direct kiosk activation and exit](supabase/migrations/20261120000200_direct_kiosk.sql)
+The old main-host `/kiosk` URL has been retired. On rollout, activate each existing tablet once at its new restaurant URL and update its bookmark. Host-only cookies stay on the hostname where they were issued. Revoke the superseded registration from **Kiosks** after confirming the replacement device. Its historical attendance stays intact.
 
-For an existing Phase 2 project, run files 3 and 4 if both markers are absent. If only direct activation is missing, run file 4 alone. If all four markers are present, skip the SQL step. File 3 is unchanged. File 4 adds admin-authorised activation and exit functions and withdraws access to the pairing functions. It preserves kiosk registrations, attendance records and PIN data. Keep `timesheet_private` outside the exposed Data API schemas.
+### Production on Vercel
 
-Set the following in the ignored `.env.local` and the deployment environment. Direct activation adds no environment variables.
+Add the app domain and kiosk subdomain to **Settings → Domains** on the same Vercel project, both assigned to the production deployment. Configure the DNS records shown by Vercel at your DNS provider and verify HTTPS for both names. Set `SHIFTBOOK_APP_ORIGIN=https://shiftbook.com` and `SHIFTBOOK_KIOSK_ORIGIN=https://kiosk.shiftbook.com` in the Production environment, substituting your actual domains, then redeploy. Keep both domains serving the app directly. A redirect from one to the other defeats the hostname split. [Vercel domain setup](https://vercel.com/docs/domains/working-with-domains/add-a-domain)
+
+Both origins must have different hostnames. The server accepts the configured Host and checks the exact Origin on actions. Other hostnames, including an unconfigured deployment alias, return 404. Configure a separate origin pair if you need a preview environment. Both hosts use the existing Supabase project and its settings below.
 
 | Variable | Value |
 | --- | --- |
@@ -72,17 +77,19 @@ order by happened_at desc, id desc;
 
 ### Activate a tablet and test a shift
 
-1. On the workplace device, open `/kiosk`, enter the administrator email and password, and select **Activate Kiosk**. The name is prefilled. An administrator of multiple workplaces also selects the workplace. The PIN screen appears, and any existing staff login on that browser ends. Admin sessions on other devices stay signed in.
+1. Open the restaurant's kiosk link on the workplace device. Check the restaurant name, enter the administrator email and password, set the device name and select **Activate Kiosk**. The PIN screen opens.
 2. Enter a six-digit employee PIN and select **Clock In / Out**. Check the first name, direction and recorded time. The screen returns to PIN entry after about three seconds. Repeat at shift end. If the response is interrupted, **Check recorded result** reads the original submission's receipt.
-3. Reopen `/kiosk` in the same profile to resume PIN entry. To return this browser to normal sign-in, select **Exit Kiosk**, enter the workplace administrator's credentials and select **Deactivate kiosk**.
-4. On the administrator dashboard, **Kiosks** shows registrations, status and last contact. **Revoke access → Confirm revocation** immediately blocks further clock actions. Refresh a revoked tablet to see the activation form. If a tablet loses its browser data, revoke its old registration before activating the new browser profile.
+3. Reopen the same restaurant URL to resume PIN entry. Use **Exit Kiosk** and reauthenticate to deactivate this device. The dashboard tab stays signed in.
+4. On the administrator dashboard, **Kiosks** shows registrations, status and last contact. **Rename** changes the device label. **Revoke access → Confirm revocation** immediately blocks further clock actions. Refresh a revoked tablet to see the activation form. If a tablet loses its browser data, revoke its old registration before activating the new browser profile.
 
-**Recover a locked browser after updating.** Open `/` and sign in normally if the old kiosk cookie is stale, expired or revoked. For an active registration, open `/kiosk?exit=1` and deactivate it with the workplace administrator's password. If the browser held a staff session alongside an active kiosk cookie, `/kiosk` also offers activation to resume attendance safely.
+Staff with physical access to an unlocked dashboard tab can use that session. Sign out of the main application before leaving a shared tablet unattended. The kiosk keeps running.
+
+One browser profile on the kiosk hostname has one active restaurant registration. A different restaurant URL cannot switch that registration. Deactivate the kiosk at its original URL before reassigning the profile. The restaurant display name is visible to visitors who know or guess the URL. Employee information requires authorisation.
 
 ### Security and operating limits
 
 - Use HTTPS on shared devices. Local Chrome supports development at `http://localhost`. The browser holds its credential in a persistent Secure, HttpOnly, host-only, SameSite=Strict cookie. Activation and exit use a fresh Supabase password sign-in scoped to the server request.
-- An active screen checks in about once a minute. Credentials rotate automatically within 30 days of their 90-day expiry on the same registration. A bounded overlap recovers a lost renewal response. Still-valid Phase 2 cookies upgrade on check-in. A browser offline past expiry requires administrator activation again.
+- An active screen checks in about once a minute. Credentials rotate automatically within 30 days of their 90-day expiry on the same registration. A bounded overlap recovers a lost renewal response. A temporary disconnect retries check-in. After an interrupted attendance submission, receipt lookup lets staff check what the server recorded. A browser offline past expiry requires administrator activation again.
 - Five incorrect PINs per kiosk in ten minutes cause a ten-minute lock.
 - A database transaction locks the device and employee, checks the PIN and active status, consumes the challenge, records the server time and saves a device-bound receipt. Overlapping requests and a three-second guard prevent near-simultaneous opposite actions. Receipt lookup is read-only for 24 hours. No staff directory is returned to the kiosk.
 - Administrators who can reveal PINs are trusted with plaintext for their organisation. Protect administrator accounts and both server keys. The encryption key plus a database copy enables decryption. Losing or replacing that key requires resetting retrievable PINs unless you perform a managed re-encryption. Disable logging of cookies and request/response bodies in hosting, analytics and error reporting. The app cannot prevent a privileged user from photographing a revealed PIN.
@@ -145,9 +152,9 @@ npm start
 
 Run the production server after stopping any dev server on the same port.
 
-The test suite applies the migrations to disposable PostgreSQL and checks the upgrade from populated Phase 2 data, PIN encryption and audit, tenant isolation, direct activation, reauthentication, renewal, lockout, receipts and weekly totals. Run `npm run test:browser` for the separate admin, employee and kiosk browser workflow, including a lost response. It launches an isolated local app with test Auth/Data API fixtures and a fresh database. Set `CHROME_PATH` to an installed Chrome/Chromium executable (macOS Google Chrome is detected automatically). The test uses a temporary copy of the app and its installed dependencies.
+The test suite applies the migrations to disposable PostgreSQL and checks the upgrade from populated Phase 2 data, PIN encryption and audit, tenant isolation, direct activation, reauthentication, renewal, lockout, receipts and weekly totals. Run `npm run test:browser` for the same-profile admin and kiosk tabs plus a separate employee session, including a lost response. It launches an isolated local app with test Auth/Data API fixtures and a fresh database. Set `CHROME_PATH` to an installed Chrome/Chromium executable (macOS Google Chrome is detected automatically). The test uses a temporary copy of the app and its installed dependencies.
 
-1. Signed out, visit `/workspace`. Expect the sign-in page. Try both public previews, change weeks, and open the kiosk from an unregistered browser.
+1. Signed out, visit `/workspace`. Expect the sign-in page. Try both public previews, change weeks, and open a restaurant kiosk URL from an unregistered browser.
 2. Sign in as the administrator. Verify the new workplace and employee directory. A newly provisioned workplace has an empty timesheet. Sign out and sign in as the employee in a separate browser profile. The same organisation’s admin URL should return a 404 for that employee.
 3. To check real records, in a test workplace use **Table Editor → work_sessions → Insert row**. Set `organisation_id`, `employee_id`, `started_at` and `ended_at`. Include the UTC offset, for example `2026-11-20T22:00:00+10:00` through `2026-11-21T02:00:00+10:00` in Brisbane. Leave review fields empty for Pending. Navigate to that week. The session should show four hours in both authorised views.
 4. Add another test employee and session. Only the administrator should see both employees’ sessions. Archive the first test employee. Their dashboard should lose access and their historical shift should remain visible to the administrator.
@@ -163,7 +170,7 @@ The test suite applies the migrations to disposable PostgreSQL and checks the up
 - `src/lib/timesheets.ts` and `sample.ts` — timezone-aware week boundaries, elapsed-time calculations and fictional preview records.
 - `supabase/migrations` — ordered schema changes. The application uses the existing Supabase project.
 
-For Vercel, use the Next.js preset and Node 22 or newer. Configure all five environment variables and apply the appropriate migrations to the target Supabase project.
+For Vercel, use the Next.js preset and Node 22 or newer. Configure the two origins and the five Supabase and PIN variables and apply the appropriate migrations to the target Supabase project.
 
 ## Next phase
 

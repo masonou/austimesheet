@@ -80,15 +80,12 @@ export function WorkspaceShell({
                 <Users size={18} /> Employees
               </Link>
             )}
-            {role === "admin" && (
+            {role === "admin" && !sample && (
               <Link
-                href={
-                  role === "admin" && !sample ? base + "?view=kiosks" : "/kiosk"
-                }
+                href={base + "?view=kiosks"}
                 aria-current={kiosks ? "page" : undefined}
               >
-                <Monitor size={18} />{" "}
-                {role === "admin" && !sample ? "Kiosks" : "Workplace kiosk"}
+                <Monitor size={18} /> Kiosks
               </Link>
             )}
           </nav>

@@ -16,6 +16,15 @@ export async function applyUpgrade(db) {
       "utf8",
     ),
   );
+  await db.exec(
+    await readFile(
+      new URL(
+        "../supabase/migrations/20261121000100_restaurant_kiosk_urls.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
 }
 async function applyProfiles(db) {
   await db.exec(

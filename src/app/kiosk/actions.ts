@@ -6,11 +6,9 @@ import {
   currentKiosk,
   deviceDigest,
   deviceToken,
-  endBrowserSession,
-  hasStaffCookies,
   kioskClient,
   pinKey,
-  sameOrigin,
+  requestRestaurant,
   saveDevice,
   validUuid,
   clearKioskCookie,
@@ -33,7 +31,8 @@ type Connection =
       challenge: string;
       locked: boolean;
     }
-  | { status: "setup"; reason: string; active: boolean }
+  | { status: "setup"; reason: string }
+  | { status: "mismatch" }
   | { status: "offline" };
 type Recorded = {
   status: "recorded";
@@ -47,13 +46,16 @@ type Result =
   | { status: "uncertain" };
 
 export async function connectKiosk(): Promise<Connection> {
-  if (!(await sameOrigin())) return { status: "offline" };
   try {
+    const workplace = await requestRestaurant();
+    if (!workplace) return { status: "mismatch" };
     const token = await deviceToken();
-    let active = false;
     let reason =
       "Sign in as a workplace administrator to activate this browser.";
     if (token) {
+      const current = await currentKiosk(tokenDigest(token));
+      if (current && current.org !== workplace.id)
+        return { status: "mismatch" };
       const successor = nextToken(token, pinKey());
       const { data, error } = await kioskClient().rpc("kiosk_heartbeat", {
         credential_digest: tokenDigest(token),
@@ -61,24 +63,21 @@ export async function connectKiosk(): Promise<Connection> {
       });
       if (error || !data) throw new Error();
       if (data.status === "active") {
-        active = true;
+        if (data.org !== workplace.id) return { status: "mismatch" };
         await saveDevice(data.renewed ? successor : token);
-        if (!(await hasStaffCookies()))
-          return {
-            status: "active",
-            name: data.name,
-            zone: data.zone,
-            challenge: data.challenge,
-            locked: !!data.locked,
-          };
-        reason =
-          "Sign in below to end the staff session in this browser and resume the kiosk.";
+        return {
+          status: "active",
+          name: data.name,
+          zone: data.zone,
+          challenge: data.challenge,
+          locked: !!data.locked,
+        };
       } else if (data.status === "retired")
         reason =
           "This kiosk was revoked or expired. An administrator can activate it again.";
     }
     if (!(await setupToken())) await saveSetup(newToken());
-    return { status: "setup", reason, active };
+    return { status: "setup", reason };
   } catch {
     return { status: "offline" };
   }
@@ -86,13 +85,13 @@ export async function connectKiosk(): Promise<Connection> {
 
 type Authorisation = {
   error?: string;
-  workplaces?: { id: string; name: string }[];
 };
 export async function authoriseKiosk(
   mode: "activate" | "exit",
   form: FormData,
 ): Promise<Authorisation> {
-  if (!(await sameOrigin()) || !["activate", "exit"].includes(mode))
+  const workplace = await requestRestaurant();
+  if (!workplace || !["activate", "exit"].includes(mode))
     return { error: "Request unavailable." };
   const email = form.get("email"),
     password = form.get("password"),
@@ -130,25 +129,26 @@ export async function authoriseKiosk(
       .eq("user_id", data.user.id)
       .eq("active", true)
       .eq("role", "admin")
+      .eq("organisation_id", workplace.id)
       .returns<
         { role: string; organisations: { id: string; name: string } }[]
       >();
     if (memberships.error) throw new Error();
-    const workplaces = memberships.data
-      .filter((m) => m.role === "admin")
-      .map((m) => m.organisations);
-    if (!workplaces.length)
+    if (
+      !memberships.data.some(
+        (m) => m.role === "admin" && m.organisations.id === workplace.id,
+      )
+    )
       return {
         error: "An active workplace administrator account is required.",
       };
     if (mode === "exit") {
       const kiosk = digest && (await currentKiosk(digest));
-      if (!kiosk || !workplaces.some((w) => w.id === kiosk.org))
+      if (!kiosk || workplace.id !== kiosk.org)
         return {
           error:
             "An administrator of this kiosk’s workplace must authorise exit.",
         };
-      await endBrowserSession();
       const reply = await proof.rpc("exit_workplace_kiosk", {
         browser_digest: digest,
       });
@@ -161,13 +161,9 @@ export async function authoriseKiosk(
       return {
         error: "Activation form expired. Refresh this page and try again.",
       };
-    const selected =
-      form.get("org") || (workplaces.length === 1 ? workplaces[0].id : null);
-    if (!workplaces.some((w) => w.id === selected)) return { workplaces };
     const credential = nextToken(seed, pinKey());
-    await endBrowserSession();
     const reply = await proof.rpc("register_workplace_kiosk", {
-      org: selected,
+      org: workplace.id,
       label: label.trim(),
       new_digest: tokenDigest(credential),
       old_digest: digest,
@@ -191,18 +187,13 @@ export async function clockWithPin(
   attempt: string,
   submission: string,
 ): Promise<Result> {
-  if (
-    !(await sameOrigin()) ||
-    (await hasStaffCookies()) ||
-    !validPin(pin) ||
-    !validUuid(attempt) ||
-    !validUuid(submission)
-  )
+  if (!validPin(pin) || !validUuid(attempt) || !validUuid(submission))
     return { status: "error", message: "Enter six digits on an active kiosk." };
   const digest = await deviceDigest();
   try {
-    const context = digest && (await currentKiosk(digest));
-    if (!context)
+    const workplace = await requestRestaurant();
+    const context = workplace && digest && (await currentKiosk(digest));
+    if (!context || context.org !== workplace.id)
       return {
         status: "error",
         message: "Kiosk access has ended. Check the device registration.",
@@ -251,15 +242,15 @@ export async function checkClockResult(
   attempt: string,
   submission: string,
 ): Promise<Recorded | null> {
+  if (!validUuid(attempt) || !validUuid(submission)) return null;
+  const digest = await deviceDigest();
+  const workplace = await requestRestaurant();
   if (
-    !(await sameOrigin()) ||
-    (await hasStaffCookies()) ||
-    !validUuid(attempt) ||
-    !validUuid(submission)
+    !workplace ||
+    !digest ||
+    (await currentKiosk(digest))?.org !== workplace.id
   )
     return null;
-  const digest = await deviceDigest();
-  if (!digest) return null;
   const { data, error } = await kioskClient().rpc("kiosk_receipt", {
     credential_digest: digest,
     attempt_id: attempt,

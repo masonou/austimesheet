@@ -11,6 +11,7 @@ import {
   tokenDigest,
   validPin,
 } from "../src/lib/kiosk/crypto.ts";
+import { expectedHost, origins } from "../src/lib/hosts.ts";
 import { elapsed, getWeek, hours } from "../src/lib/timesheets.ts";
 import {
   applyUpgrade,
@@ -294,7 +295,10 @@ test("registration is idempotent, exit requires the correct admin, reactivation 
   );
   assert.equal((await heartbeat(fresh)).status, "retired");
   assert.equal(await service("kiosk_context($1)", [fresh.digest]), null);
-  assert.equal((await clock(fresh, tokenDigest("expired"))).status, "unauthorised");
+  assert.equal(
+    (await clock(fresh, tokenDigest("expired"))).status,
+    "unauthorised",
+  );
   const replacement = begin();
   await activate(f, replacement, fresh.digest);
   assert.equal((await heartbeat(replacement)).status, "active");
@@ -438,4 +442,58 @@ test("incorrect, archived and foreign PINs cannot clock; five wrong attempts loc
     ).rows[0].n,
     0,
   );
+});
+
+test("restaurant URLs are unique, permanent, route-safe and expose only the kiosk display identity", async () => {
+  const insert = async (name) =>
+    (
+      await db.query(
+        "insert into organisations(name) values ($1) returning id,name,slug",
+        [name],
+      )
+    ).rows[0];
+  const first = await insert("Harbour / Café!");
+  assert.equal(first.slug, "harbour-cafe");
+  assert.equal((await insert("Harbour Café")).slug, "harbour-cafe-2");
+  for (const name of ["🍲", "workspace", "x".repeat(120), "x".repeat(120)]) {
+    const { slug } = await insert(name);
+    assert.match(slug, /^[a-z0-9]+(-[a-z0-9]+)*$/);
+    assert(slug.length <= 63 && slug !== "workspace");
+  }
+  await db.query("update organisations set name='New name' where id=$1", [
+    first.id,
+  ]);
+  await assert.rejects(
+    db.query("update organisations set slug='new-name' where id=$1", [
+      first.id,
+    ]),
+  );
+  assert.deepEqual(await service("kiosk_restaurant($1)", [first.slug]), {
+    id: first.id,
+    name: "New name",
+  });
+  assert.equal(await service("kiosk_restaurant($1)", ["absent"]), null);
+  for (const role of ["anon", "authenticated"]) {
+    await assert.rejects(
+      rpc(role, null, "kiosk_restaurant($1)", [first.slug]),
+      { code: "42501" },
+    );
+  }
+});
+
+test("application and kiosk actions require their configured host and exact browser origin", () => {
+  const { app, kiosk } = origins();
+  const h = new Headers({ host: app.host, origin: app.origin });
+  assert(expectedHost(h, "app", true));
+  assert(!expectedHost(h, "kiosk", true));
+  h.set("origin", kiosk.origin);
+  assert(!expectedHost(h, "app", true));
+  h.set("host", kiosk.host);
+  assert(expectedHost(h, "kiosk", true));
+  h.set("host", "unconfigured.example");
+  h.set("x-forwarded-host", kiosk.host);
+  assert(!expectedHost(h, "kiosk", true));
+  h.set("host", kiosk.host);
+  h.delete("origin");
+  assert(!expectedHost(h, "kiosk", true));
 });

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarDays, Clock3, Monitor, PanelsTopLeft } from "lucide-react";
+import { CalendarDays, Clock3, PanelsTopLeft } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { LoginForm } from "@/components/login-form";
 
@@ -8,9 +8,6 @@ export default function Home() {
     <div className="entry">
       <header className="topbar">
         <Brand />
-        <Link className="quiet-link" href="/kiosk">
-          <Monitor size={17} /> Workplace kiosk
-        </Link>
       </header>
       <main className="entry-grid">
         <section className="login-panel">

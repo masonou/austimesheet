@@ -2,7 +2,7 @@ import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import { cookies, headers } from "next/headers";
 import { supabaseConfig } from "@/lib/supabase/config";
-import { serverClient } from "@/lib/supabase/server";
+import { expectedHost, restaurantPath } from "@/lib/hosts";
 import { tokenDigest } from "./crypto";
 
 const cookieName = "__Host-shiftbook-kiosk";
@@ -12,17 +12,24 @@ export const validUuid = (v: unknown): v is string =>
   typeof v === "string" && /^[\da-f]{8}(-[\da-f]{4}){3}-[\da-f]{12}$/i.test(v);
 
 export async function sameOrigin() {
+  return expectedHost(await headers(), "app", true);
+}
+
+export async function requestRestaurant() {
   const h = await headers();
-  try {
-    const origin = new URL(h.get("origin") || "");
-    const local = ["localhost", "127.0.0.1", "[::1]"].includes(origin.hostname);
-    return (
-      origin.host === h.get("host") &&
-      (origin.protocol === "https:" || (local && origin.protocol === "http:"))
-    );
-  } catch {
-    return false;
-  }
+  if (!expectedHost(h, "kiosk", true)) return null;
+  const slug = restaurantPath("/" + (h.get("x-shiftbook-restaurant") ?? ""));
+  return slug ? restaurant(slug) : null;
+}
+
+export async function restaurant(
+  slug: string,
+): Promise<{ id: string; name: string } | null> {
+  const { data, error } = await kioskClient().rpc("kiosk_restaurant", {
+    restaurant_slug: slug,
+  });
+  if (error) throw new Error("Restaurant lookup unavailable.");
+  return data;
 }
 
 export function pinKey() {
@@ -32,8 +39,7 @@ export function pinKey() {
   return key;
 }
 
-// This client never receives user session cookies. Only the three bounded kiosk
-// RPCs below and in kiosk/actions.ts use it.
+// This client never receives user session cookies. Its callers use scoped kiosk RPCs.
 export function kioskClient() {
   const key = process.env.SUPABASE_SECRET_KEY;
   if (!key) throw new Error("Kiosk server credential is missing.");
@@ -88,10 +94,6 @@ export async function clearKioskCookie(setupOnly = false) {
       maxAge: 0,
     });
 }
-export async function registeredHere() {
-  const digest = await deviceDigest();
-  return digest ? await currentKiosk(digest) : null;
-}
 export async function deviceDigest() {
   const token = await deviceToken();
   return token ? tokenDigest(token) : null;
@@ -106,42 +108,6 @@ export function encryptionKey() {
   )
     throw new Error("A separate PIN encryption key is required.");
   return key;
-}
-
-async function projectAuthCookies() {
-  // Includes chunked SSR auth cookies. Fail closed even if a stale staff session
-  // cannot be refreshed while the shared device is being prepared.
-  const prefix =
-    "sb-" +
-    new URL(supabaseConfig().url).hostname.split(".")[0] +
-    "-auth-token";
-  return (await cookies())
-    .getAll()
-    .filter(
-      (c) =>
-        (c.name === prefix ||
-          (c.name.startsWith(prefix + ".") &&
-            /^\d+$/.test(c.name.slice(prefix.length + 1)))) &&
-        c.value,
-    );
-}
-export async function hasStaffCookies() {
-  return (await projectAuthCookies()).length > 0;
-}
-export async function endBrowserSession() {
-  if (!(await hasStaffCookies())) return;
-  const { error } = await (
-    await serverClient()
-  ).auth.signOut({ scope: "local" });
-  if (
-    error &&
-    ![401, 403, 404].includes(error.status ?? 0) &&
-    error.code !== "refresh_token_not_found" &&
-    error.name !== "AuthSessionMissingError"
-  )
-    throw new Error("Local sign-out unavailable.");
-  const jar = await cookies();
-  for (const c of await projectAuthCookies()) jar.delete(c.name);
 }
 
 export type KioskContext = {

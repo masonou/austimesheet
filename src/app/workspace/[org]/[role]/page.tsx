@@ -6,6 +6,7 @@ import { readPages, readRecords } from "@/lib/records";
 import { KioskAdmin, type Device } from "@/components/kiosk-admin";
 import { EmployeeProfile } from "@/components/employee-profile";
 import { validUuid } from "@/lib/kiosk/server";
+import { origins } from "@/lib/hosts";
 import { notFound } from "next/navigation";
 
 export default async function Dashboard({
@@ -57,6 +58,9 @@ export default async function Dashboard({
     return (
       <WorkspaceShell {...{ name, role, base }} kiosks>
         <KioskAdmin
+          kioskUrl={
+            new URL("/" + membership.organisations.slug, origins().kiosk).href
+          }
           org={route.org}
           devices={devices}
           zone={zone}

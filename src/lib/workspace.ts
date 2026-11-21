@@ -2,22 +2,23 @@ import "server-only";
 import { cache } from "react";
 import { notFound, redirect } from "next/navigation";
 import { serverClient } from "./supabase/server";
-import { registeredHere } from "./kiosk/server";
+import { expectedHost } from "./hosts";
+import { headers } from "next/headers";
 
 export type Role = "admin" | "employee";
 export type Membership = {
   role: Role;
-  organisations: { id: string; name: string; timezone: string };
+  organisations: { id: string; name: string; slug: string; timezone: string };
 };
 
 export const getAccount = cache(async () => {
+  if (!expectedHost(await headers(), "app")) notFound();
   const client = await serverClient();
   const { data, error } = await client.auth.getClaims();
   if (error || !data?.claims.sub) redirect("/");
-  if (await registeredHere()) redirect("/kiosk?exit=1");
   const memberships = await client
     .from("organisation_memberships")
-    .select("role, organisations!inner(id, name, timezone)")
+    .select("role, organisations!inner(id, name, slug, timezone)")
     .eq("user_id", data.claims.sub)
     .eq("active", true)
     .order("organisation_id")

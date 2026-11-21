@@ -30,7 +30,7 @@ export function KioskScreen() {
       setConnection((old) =>
         reply.status === "offline" && old?.status === "active" ? old : reply,
       );
-      if (reply.status !== "setup")
+      if (reply.status === "active" || reply.status === "offline")
         timer = window.setTimeout(
           poll,
           reply.status === "active" ? 60000 : 4000,
@@ -44,13 +44,8 @@ export function KioskScreen() {
   }, []);
   const [exit, setExit] = useState(false);
   if (connection?.status === "active") {
-    if (exit || new URLSearchParams(window.location.search).has("exit"))
-      return (
-        <KioskAuthorisation
-          mode="exit"
-          cancel={() => window.location.replace("/kiosk")}
-        />
-      );
+    if (exit)
+      return <KioskAuthorisation mode="exit" cancel={() => setExit(false)} />;
     return (
       <>
         <Clock context={connection} />
@@ -60,26 +55,15 @@ export function KioskScreen() {
       </>
     );
   }
-  if (connection?.status === "setup") {
-    if (
-      connection.active &&
-      (exit || new URLSearchParams(window.location.search).has("exit"))
-    )
-      return (
-        <KioskAuthorisation
-          mode="exit"
-          cancel={() => window.location.replace("/kiosk")}
-        />
-      );
+  if (connection?.status === "setup")
+    return <KioskAuthorisation mode="activate" reason={connection.reason} />;
+  if (connection?.status === "mismatch")
     return (
-      <>
-        <KioskAuthorisation mode="activate" reason={connection.reason} />
-        {connection.active && (
-          <button onClick={() => setExit(true)}>Exit Kiosk</button>
-        )}
-      </>
+      <p role="alert">
+        This browser is registered to another workplace. Open its original kiosk
+        link to continue.
+      </p>
     );
-  }
   return (
     <p role="status">
       {connection
@@ -100,9 +84,6 @@ function KioskAuthorisation({
 }) {
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
-  const [workplaces, setWorkplaces] = useState<{ id: string; name: string }[]>(
-    [],
-  );
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (busy) return;
@@ -111,9 +92,8 @@ function KioskAuthorisation({
     setMessage("");
     try {
       const r = await authoriseKiosk(mode, fields);
-      if (r.workplaces) setWorkplaces(r.workplaces);
-      else if (r.error) setMessage(r.error);
-      else window.location.replace(mode === "exit" ? "/" : "/kiosk");
+      if (r.error) setMessage(r.error);
+      else window.location.reload();
     } catch {
       setMessage("Connection interrupted. Refresh to check the kiosk status.");
     } finally {
@@ -151,21 +131,6 @@ function KioskAuthorisation({
               maxLength={80}
               required
             />
-          </label>
-        )}
-        {!!workplaces.length && (
-          <label>
-            Workplace
-            <select name="org" required defaultValue="">
-              <option value="" disabled>
-                Select a workplace
-              </option>
-              {workplaces.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
           </label>
         )}
         {message && <p role="alert">{message}</p>}

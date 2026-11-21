@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { revokeDevice } from "@/app/workspace/kiosk-actions";
+import { revokeDevice, renameDevice } from "@/app/workspace/kiosk-actions";
 
 export type Device = {
   id: string;
@@ -15,17 +15,21 @@ export type Device = {
 export function KioskAdmin({
   org,
   devices,
+  kioskUrl,
   zone,
   asOf,
 }: {
   org: string;
   devices: Device[];
+  kioskUrl: string;
   zone: string;
   asOf: number;
 }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [confirm, setConfirm] = useState("");
+
+  const [editing, setEditing] = useState("");
 
   async function revoke(id: string) {
     setBusy(true);
@@ -47,8 +51,14 @@ export function KioskAdmin({
       </p>
       <h1>Kiosks</h1>
       <p className="lead">
-        To activate a workplace device, open /kiosk on that device and sign in
-        there as an administrator.
+        <a
+          className="quiet-link"
+          href={kioskUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Open Kiosk ↗
+        </a>
       </p>
       {message && (
         <p className="device-section" role="status">
@@ -73,7 +83,54 @@ export function KioskAdmin({
           return (
             <div className="directory-row" key={d.id}>
               <div>
-                <strong>{d.name}</strong>
+                {editing === d.id ? (
+                  <form
+                    action={async (fields) => {
+                      setBusy(true);
+                      try {
+                        const reply = await renameDevice(
+                          org,
+                          d.id,
+                          String(fields.get("name") ?? ""),
+                        );
+                        setMessage(reply.error || "Kiosk name updated.");
+                        if (!reply.error) setEditing("");
+                      } catch {
+                        setMessage(
+                          "Could not confirm the new name. Refresh the list.",
+                        );
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    <input
+                      name="name"
+                      aria-label="Device name"
+                      defaultValue={d.name}
+                      maxLength={80}
+                      required
+                    />
+                    <button disabled={busy}>Save name</button>
+                    <button
+                      type="button"
+                      onClick={() => setEditing("")}
+                      disabled={busy}
+                    >
+                      Cancel
+                    </button>
+                  </form>
+                ) : (
+                  <>
+                    <strong>{d.name}</strong>{" "}
+                    <button
+                      className="quiet-link"
+                      onClick={() => setEditing(d.id)}
+                    >
+                      Rename
+                    </button>
+                  </>
+                )}
                 <p>
                   {status}
                   {d.last_seen_at &&

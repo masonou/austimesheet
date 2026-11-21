@@ -35,6 +35,8 @@ try {
   const port = socket.address().port;
   await new Promise((r) => socket.close(r));
   const base = "http://localhost:" + port;
+  const kioskOrigin = "http://127.0.0.1:" + port;
+  const kioskUrl = kioskOrigin + "/test-cafe";
   next = spawn(
     process.execPath,
     [
@@ -47,7 +49,13 @@ try {
     ],
     {
       cwd: app,
-      env: { ...process.env, ...fixture.env, NEXT_TELEMETRY_DISABLED: "1" },
+      env: {
+        ...process.env,
+        ...fixture.env,
+        SHIFTBOOK_APP_ORIGIN: base,
+        SHIFTBOOK_KIOSK_ORIGIN: kioskOrigin,
+        NEXT_TELEMETRY_DISABLED: "1",
+      },
       stdio: "ignore",
     },
   );
@@ -77,10 +85,10 @@ try {
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await page.waitForURL("**/workspace/**");
   }
-  const admin = await browser.newPage(),
-    employee = await browser.newPage();
-  let tablet = await browser.newContext(),
-    kiosk = await tablet.newPage();
+  let tablet = await browser.newContext();
+  let admin = await tablet.newPage();
+  const employee = await browser.newPage();
+  let kiosk;
   await login(admin, fixture.adminEmail);
   await login(employee, fixture.email);
   assert.equal(await employee.getByRole("link", { name: /kiosk/i }).count(), 0);
@@ -105,18 +113,13 @@ try {
   const pin = await admin.locator(".issued-pin").innerText();
   assert(/^\d{6}$/.test(pin));
   await admin.getByRole("button", { name: "Hide PIN" }).click();
-  // Reproduce the old mixed-cookie browser before activating it.
-  const stale = {
-    name: "__Host-shiftbook-kiosk",
-    value: "a".repeat(43),
-    domain: "localhost",
-    path: "/",
-    secure: true,
-    httpOnly: true,
-  };
-  await tablet.addCookies([stale]);
-  await login(kiosk, fixture.adminEmail);
-  await kiosk.goto(base + "/kiosk");
+  await admin.getByRole("link", { name: "Kiosks", exact: true }).click();
+  const link = admin.getByRole("link", { name: /Open Kiosk/ });
+  assert.equal(await link.getAttribute("href"), kioskUrl);
+  const opened = tablet.waitForEvent("page");
+  await link.click();
+  kiosk = await opened;
+  await kiosk.getByText("Test café", { exact: true }).waitFor();
   async function credentials(
     page,
     email = fixture.adminEmail,
@@ -125,6 +128,14 @@ try {
     await page.getByLabel("Admin email").fill(email);
     await page.getByLabel("Password", { exact: true }).fill(password);
   }
+  await kiosk.goto(kioskOrigin + "/harbour-pub");
+  await credentials(kiosk);
+  await kiosk.getByRole("button", { name: "Activate Kiosk" }).click();
+  await kiosk
+    .getByRole("alert")
+    .filter({ hasText: "administrator account" })
+    .waitFor();
+  await kiosk.goto(kioskUrl);
   await credentials(kiosk, fixture.email);
   await kiosk.getByRole("button", { name: "Activate Kiosk" }).click();
   await kiosk
@@ -135,12 +146,34 @@ try {
   await kiosk.getByLabel("Kiosk name").fill("Front counter");
   await kiosk.getByRole("button", { name: "Activate Kiosk" }).click();
   await kiosk.getByLabel("Enter your PIN").waitFor();
-  assert(!(await tablet.cookies()).some((c) => c.name.includes("auth-token")));
-  await kiosk.goto(base + "/workspace");
-  await kiosk.waitForURL(base + "/");
-  await kiosk.goto(base + "/kiosk");
-  await admin.getByRole("link", { name: "Kiosks", exact: true }).click();
+  assert(
+    !(await tablet.cookies(kioskUrl)).some((c) =>
+      c.name.includes("auth-token"),
+    ),
+  );
+  assert(
+    !(await tablet.cookies(base)).some((c) =>
+      c.name.includes("shiftbook-kiosk"),
+    ),
+  );
+  const adminUrl = admin.url();
+  await admin.reload();
   await admin.getByRole("button", { name: "Revoke access" }).waitFor();
+  await admin.getByRole("button", { name: "Rename", exact: true }).click();
+  await admin.getByLabel("Device name").fill("Front desk");
+  await admin.getByRole("button", { name: "Save name" }).click();
+  await admin.getByText("Front desk", { exact: true }).waitFor();
+  const blocked = await employee.goto(kioskOrigin + new URL(adminUrl).pathname);
+  assert.equal(blocked.status(), 404);
+  await employee.goto(base + "/workspace");
+  await kiosk.goto(kioskOrigin + "/harbour-pub");
+  await kiosk
+    .getByRole("alert")
+    .filter({ hasText: "another workplace" })
+    .waitFor();
+  assert.equal(await kiosk.getByLabel("Enter your PIN").count(), 0);
+  await kiosk.goto(kioskUrl);
+  await kiosk.getByLabel("Enter your PIN").waitFor();
   const stored = await tablet.storageState();
   const cookie = stored.cookies.find(
     (c) => c.name === "__Host-shiftbook-kiosk",
@@ -153,7 +186,9 @@ try {
   await tablet.close();
   tablet = await browser.newContext({ storageState: stored });
   kiosk = await tablet.newPage();
-  await kiosk.goto(base + "/kiosk");
+  admin = await tablet.newPage();
+  await admin.goto(adminUrl);
+  await kiosk.goto(kioskUrl);
   async function clock() {
     await kiosk.getByLabel("Enter your PIN").fill(pin);
     await kiosk
@@ -185,31 +220,19 @@ try {
     .waitFor();
   await kiosk.reload();
   await kiosk.getByText(/revoked or expired/).waitFor();
-  const revokedBrowser = await browser.newContext({
-    storageState: await tablet.storageState(),
-  });
-  await login(await revokedBrowser.newPage(), fixture.email);
-  await revokedBrowser.close();
   await credentials(kiosk);
   await kiosk.getByRole("button", { name: "Activate Kiosk" }).click();
   await kiosk.getByRole("button", { name: "Exit Kiosk" }).click();
-  await kiosk.getByRole("button", { name: "Cancel" }).click();
-  await kiosk.goto(base);
-  await kiosk.getByLabel("Work email").fill(fixture.adminEmail);
-  await kiosk.getByLabel("Password", { exact: true }).fill(fixture.password);
-  await kiosk.getByRole("button", { name: "Sign in", exact: true }).click();
-  await kiosk.waitForURL(base + "/kiosk?exit=1");
   await credentials(kiosk, fixture.adminEmail, "wrong");
   await kiosk.getByRole("button", { name: "Deactivate kiosk" }).click();
   await kiosk.getByRole("alert").waitFor();
   await credentials(kiosk);
   await kiosk.getByRole("button", { name: "Deactivate kiosk" }).click();
-  await kiosk.waitForURL(base + "/");
-  await login(kiosk, fixture.email);
+  await kiosk.getByRole("button", { name: "Activate Kiosk" }).waitFor();
   await admin.reload();
   await admin.getByText(/^Revoked/).waitFor();
   console.log(
-    "PASS separate admin, employee and reopened kiosk profiles; masked reveal, no-store response, name edit, one-tap attendance, lost-response receipt and revocation.",
+    "PASS simultaneous admin and kiosk tabs on isolated hosts, restaurant binding, employee restrictions, persistent reopening, local exit; masked reveal, no-store response, name edit, one-tap attendance, lost-response receipt and revocation.",
   );
 } finally {
   await browser?.close();

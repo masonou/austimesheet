@@ -2,10 +2,10 @@
 
 import { redirect } from "next/navigation";
 import { serverClient } from "@/lib/supabase/server";
-import { registeredHere } from "@/lib/kiosk/server";
+import { sameOrigin } from "@/lib/kiosk/server";
 
 export async function signIn(_: string, form: FormData) {
-  if (await registeredHere()) redirect("/kiosk?exit=1");
+  if (!(await sameOrigin())) return "Request unavailable.";
   const email = form.get("email");
   const password = form.get("password");
   if (
@@ -25,6 +25,7 @@ export async function signIn(_: string, form: FormData) {
 }
 
 export async function signOut() {
+  if (!(await sameOrigin())) throw new Error("Request unavailable.");
   const client = await serverClient();
   const { error } = await client.auth.signOut({ scope: "local" });
   if (error) throw new Error("Could not sign out. Please try again.");

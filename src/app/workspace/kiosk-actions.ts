@@ -116,3 +116,24 @@ export async function revokeDevice(org: string, device: string) {
   revalidatePath("/workspace/" + org + "/admin");
   return { error: "" };
 }
+
+export async function renameDevice(org: string, device: string, label: string) {
+  if (
+    !(await sameOrigin()) ||
+    !validUuid(org) ||
+    !validUuid(device) ||
+    typeof label !== "string" ||
+    !label.trim() ||
+    label.trim().length > 80
+  )
+    return { error: "Enter a kiosk name of up to 80 characters." };
+  const { client } = await requireWorkspace(org, "admin");
+  const { error } = await client.rpc("rename_kiosk", {
+    org,
+    device,
+    label: label.trim(),
+  });
+  if (error) return { error: "Could not rename this kiosk." };
+  revalidatePath("/workspace/" + org + "/admin");
+  return { error: "" };
+}
