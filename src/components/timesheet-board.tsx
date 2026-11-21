@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { SessionDialog, sessionStatus } from "./session-dialog";
 import Link from "next/link";
+import { AddEmployee } from "./add-employee";
 import {
   CalendarDays,
   CalendarRange,
@@ -35,6 +36,7 @@ export function StaffList({ staff, org }: { staff: Staff[]; org?: string }) {
         <div className="section-head">
           <h2>Staff directory</h2>
           <span>{staff.length} employees</span>
+          {org && <AddEmployee org={org} />}
         </div>
         {staff.map((person) => (
           <div className="directory-row" key={person.id}>

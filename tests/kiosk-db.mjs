@@ -34,6 +34,15 @@ export async function applyUpgrade(db) {
       "utf8",
     ),
   );
+  await db.exec(
+    await readFile(
+      new URL(
+        "../supabase/migrations/20261121000300_employee_onboarding.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
 }
 async function applyProfiles(db) {
   await db.exec(
@@ -48,7 +57,7 @@ export async function testDatabase({ legacy = false } = {}) {
   await db.exec(`
     create schema auth; create schema extensions;
     create role anon; create role authenticated; create role service_role;
-    create table auth.users(id uuid primary key,email text);
+    create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,invited_at timestamptz,encrypted_password text);
     create function auth.uid() returns uuid language sql stable as $$
       select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid
     $$;

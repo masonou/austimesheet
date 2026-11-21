@@ -890,3 +890,9 @@ tbody tr:last-child td {
   margin-top: 0.75rem;
   color: #8b3028;
 }
+
+.shift-form .invite-choice {
+  display: flex;
+  align-items: center;
+}
+.invite-choice input[type="checkbox"] { width: auto; }

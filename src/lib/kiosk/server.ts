@@ -1,9 +1,8 @@
 import "server-only";
-import { createClient } from "@supabase/supabase-js";
+import { serviceClient as kioskClient } from "@/lib/supabase/service";
 import { cookies, headers } from "next/headers";
-import { supabaseConfig } from "@/lib/supabase/config";
 import { expectedHost, restaurantPath } from "@/lib/hosts";
-import { tokenDigest } from "./crypto";
+import { tokenDigest, pinVerifier, sealPin } from "./crypto";
 
 const cookieName = "__Host-shiftbook-kiosk";
 export const validToken = (v: unknown): v is string =>
@@ -39,21 +38,7 @@ export function pinKey() {
   return key;
 }
 
-// This client never receives user session cookies. Its callers use scoped kiosk RPCs.
-export function kioskClient() {
-  const key = process.env.SUPABASE_SECRET_KEY;
-  if (!key) throw new Error("Kiosk server credential is missing.");
-  return createClient(supabaseConfig().url, key, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-    },
-    global: {
-      fetch: (url, init) => fetch(url, { ...init, cache: "no-store" }),
-    },
-  });
-}
+export { serviceClient as kioskClient } from "@/lib/supabase/service";
 
 export async function saveDevice(token: string) {
   (await cookies()).set(cookieName, token, {
@@ -108,6 +93,17 @@ export function encryptionKey() {
   )
     throw new Error("A separate PIN encryption key is required.");
   return key;
+}
+
+export async function employeePinValues(
+  org: string,
+  employee: string,
+  pin: string,
+) {
+  return {
+    pin_verifier: await pinVerifier(org, pin, pinKey()),
+    envelope: sealPin(org, employee, pin, encryptionKey()),
+  };
 }
 
 export type KioskContext = {

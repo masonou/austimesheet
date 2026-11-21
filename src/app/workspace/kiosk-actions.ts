@@ -2,16 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { requireWorkspace } from "@/lib/workspace";
-import {
-  newPin,
-  openPin,
-  sealPin,
-  pinVerifier,
-  validPin,
-} from "@/lib/kiosk/crypto";
+import { newPin, openPin, validPin } from "@/lib/kiosk/crypto";
 import {
   encryptionKey,
-  pinKey,
+  employeePinValues,
   sameOrigin,
   validUuid,
 } from "@/lib/kiosk/server";
@@ -32,8 +26,7 @@ export async function assignPin(
       const { error } = await client.rpc("set_employee_pin", {
         org,
         employee,
-        pin_verifier: await pinVerifier(org, pin, pinKey()),
-        envelope: sealPin(org, employee, pin, encryptionKey()),
+        ...(await employeePinValues(org, employee, pin)),
       });
       if (!error) {
         revalidatePath("/workspace/" + org + "/admin");

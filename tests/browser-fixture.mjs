@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { randomBytes, createHmac } from "node:crypto";
+import { randomBytes, randomUUID, createHmac } from "node:crypto";
 import { testDatabase, workplace, roleQuery } from "./kiosk-db.mjs";
 
 // Local Auth/HTTP adapter for browser tests. All profile, registration, attendance
@@ -18,12 +18,28 @@ export async function browserFixture() {
     Buffer.from(JSON.stringify(value)).toString("base64url");
   const email = "alex@example.test",
     adminEmail = "admin@example.test";
-  await db.query("update auth.users set email=$1 where id=$2", [
-    email,
-    f.worker,
+  const existingEmail = "returning@example.test";
+  const ids = new Map([
+    [adminEmail, f.admin],
+    [email, f.worker],
+    [existingEmail, randomUUID()],
   ]);
+  const passwords = new Map(
+    [...ids.keys()].map((address) => [address, password]),
+  );
+  await db.query("insert into auth.users(id) values($1)", [
+    ids.get(existingEmail),
+  ]);
+  for (const [address, id] of ids)
+    await db.query(
+      "update auth.users set email=$1,email_confirmed_at=now(),encrypted_password='existing' where id=$2",
+      [address, id],
+    );
+  const mail = new Map(),
+    tokens = new Map();
+  let failInvitation = false;
   function issue(address) {
-    const id = address === adminEmail ? f.admin : f.worker;
+    const id = ids.get(address);
     const user = {
       id,
       aud: "authenticated",
@@ -56,6 +72,19 @@ export async function browserFixture() {
     };
   }
   const signatures = {
+    create_employee: [
+      "org",
+      "employee",
+      "full_name",
+      "address",
+      "pin_verifier",
+      "envelope",
+    ],
+    set_employee_active: ["org", "employee", "enabled"],
+    prepare_employee_invite: ["org", "employee", "address"],
+    finish_employee_invite: ["claim", "delivered", "invited_user"],
+    employee_invite_details: ["claim"],
+    accept_employee_invite: ["claim"],
     manage_work_session: [
       "org",
       "employee",
@@ -90,7 +119,10 @@ export async function browserFixture() {
   const server = createServer(async (req, res) => {
     const path = new URL(req.url, "http://localhost").pathname;
     const send = (status, val) => {
-      res.writeHead(status, { "content-type": "application/json" });
+      res.writeHead(status, {
+        "content-type": "application/json",
+        "x-supabase-api-version": "2024-01-01",
+      });
       res.end(JSON.stringify(val));
     };
     try {
@@ -108,10 +140,63 @@ export async function browserFixture() {
             ? "authenticated"
             : "anon";
       if (path === "/auth/v1/token")
-        return body.password === password &&
-          [adminEmail, email].includes(body.email)
+        return passwords.has(body.email) &&
+          passwords.get(body.email) === body.password
           ? send(200, issue(body.email))
           : send(400, {});
+      if (path === "/auth/v1/invite" || path === "/auth/v1/otp") {
+        const invite = path.endsWith("/invite");
+        if (invite && role !== "service_role") return send(403, {});
+        if (failInvitation) {
+          failInvitation = false;
+          return send(400, {
+            code: "email_address_not_authorized",
+            message: "Fixture delivery failure",
+          });
+        }
+        if (invite && passwords.has(body.email))
+          return send(422, { code: "email_exists", message: "Email exists" });
+        if (!invite && (!ids.has(body.email) || body.create_user !== false))
+          return send(400, {});
+        if (!ids.has(body.email)) {
+          const uid = randomUUID();
+          ids.set(body.email, uid);
+          await db.query(
+            "insert into auth.users(id,email,invited_at) values($1,$2,now())",
+            [uid, body.email],
+          );
+        }
+        const hash = random(),
+          type = invite ? "invite" : "magiclink";
+        tokens.set(hash, { email: body.email, type });
+        const target = new URL(req.url, "http://localhost").searchParams.get(
+          "redirect_to",
+        );
+        mail.set(body.email, target + "#token_hash=" + hash + "&type=" + type);
+        return send(
+          200,
+          invite
+            ? { id: ids.get(body.email), email: body.email, identities: [] }
+            : {},
+        );
+      }
+      if (path === "/auth/v1/verify") {
+        const delivery = tokens.get(body.token_hash);
+        if (!delivery || delivery.type !== body.type) return send(403, {});
+        tokens.delete(body.token_hash);
+        await db.query(
+          "update auth.users set email_confirmed_at=now() where id=$1",
+          [ids.get(delivery.email)],
+        );
+        return send(200, issue(delivery.email));
+      }
+      if (path === "/auth/v1/user" && req.method === "PUT" && user) {
+        passwords.set(user.email, body.password);
+        await db.query(
+          "update auth.users set encrypted_password='employee-chosen' where id=$1",
+          [user.id],
+        );
+      }
       if (path === "/auth/v1/user") return send(user ? 200 : 401, user);
       if (path === "/auth/v1/logout") {
         const scope =
@@ -209,6 +294,11 @@ export async function browserFixture() {
     adminEmail,
     password,
     org: f.org,
+    existingEmail,
+    inviteLink: (address) => mail.get(address),
+    failInvite: () => {
+      failInvitation = true;
+    },
     dropReply: () => {
       dropClockResponse = true;
     },

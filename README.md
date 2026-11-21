@@ -24,6 +24,37 @@ Open [localhost:3000](http://localhost:3000). Keep the existing `NEXT_PUBLIC_SUP
 
 The weekly window runs from local Monday midnight up to the following Monday. Each session shows its full elapsed duration. Weekly totals count only the portion of completed sessions inside that week, including over midnight and daylight-saving transitions. Open sessions appear as open and accrue no displayed total until closed.
 
+## Employee onboarding rollout
+
+On an existing Phase 3A installation, open **Supabase → SQL Editor → New query** and run the complete [employee onboarding migration](supabase/migrations/20261121000300_employee_onboarding.sql) once as the database owner. It adds an optional staff contact email and a private invitation record, and reuses the existing PIN encryption, audit and employee IDs. If unsure whether it is installed, run `select to_regprocedure('public.accept_employee_invite(uuid)') is not null as installed;` first. Deploy the updated application with the existing environment variables.
+
+### Supabase Auth email setup
+
+1. Enable the Email provider. **Authentication → URL Configuration → Site URL** should be the main app origin. Under **Redirect URLs**, add `http://localhost:3000/auth/employee-invite/*` for local testing and `https://YOUR-APP-DOMAIN/auth/employee-invite/*` for production, using the actual `SHIFTBOOK_APP_ORIGIN`. The final segment is a per-invitation UUID. [Supabase redirect URLs](https://supabase.com/docs/guides/auth/redirect-urls)
+2. In **Authentication → Email Templates**, set the invitation button in **Invite user** to the following link. The recipient clicks **Verify invitation** on the app before Supabase consumes the token. [Supabase email templates](https://supabase.com/docs/guides/auth/auth-email-templates)
+
+   ```html
+   <a href="{{ .RedirectTo }}#token_hash={{ .TokenHash }}&amp;type=invite">Open employee invitation</a>
+   ```
+
+3. In **Magic Link**, use the following link for invitations to existing accounts. These templates apply project-wide. If the project also sends unrelated magic links, preserve their existing flow when configuring templates. Shiftbook uses the existing account’s password after acceptance. [Supabase invitation API](https://supabase.com/docs/reference/javascript/auth-admin-inviteuserbyemail)
+
+   ```html
+   <a href="{{ .RedirectTo }}#token_hash={{ .TokenHash }}&amp;type=magiclink">Open employee invitation</a>
+   ```
+
+4. Configure **custom SMTP** in Supabase Auth with your sender and delivery credentials before inviting ordinary staff addresses. The hosted default mailer restricts delivery to authorised project team addresses. Keep the Supabase secret key in the server environment. [Supabase SMTP setup](https://supabase.com/docs/guides/auth/auth-smtp)
+
+### Test an employee from first shift to dashboard
+
+1. In **Admin → Employees → Add Employee**, enter a full name. Choose a six-digit PIN or leave **Generate randomly** selected. Save and open the new profile. Use **Reveal PIN** and record a shift on the authorised kiosk.
+2. From that same profile choose **Invite to dashboard**, enter the employee's email and send. To send at creation, enter an email and tick **Invite to personal dashboard** in the add form. Entering an email alone saves a contact address.
+3. Open the email in the employee’s browser profile. Choose **Verify invitation**, check the workplace and email, set a password if prompted, then **Accept invitation**. Confirm that the earlier shift is visible in **My timesheet**. Sign out and sign back in with the employee's password.
+4. In the admin profile use **Deactivate employee → Confirm status change**. Clocking and effective employee dashboard access stop. **View timesheets** still opens the historical shifts. Reactivate to restore eligibility for the existing link. An open shift can be completed in the administrator timesheet editor.
+5. To retry a failed or expired invitation, use **Resend invitation** on the same profile. Each resend supersedes the previous workplace link. Shiftbook allows acceptance for 24 hours, and the email token also has Supabase's configured expiry. Deactivation cancels outstanding invitations. An email delivery failure leaves the employee available for kiosk attendance.
+
+Invitations bind one employee row, one workplace and one confirmed Supabase user ID. The acceptance transaction checks the recipient, active employee and inviting administrator, then creates or reuses only an active employee membership. It refuses to replace existing roles or link two staff records in the same workplace to one user. Just adding a contact email grants no dashboard access.
+
 ## Phase 3A timesheet management
 
 **Upgrade an existing Phase 2 workplace.** In the target Supabase project's **SQL Editor → New query**, paste and run the complete [Phase 3A migration](supabase/migrations/20261121000200_timesheet_management.sql) once as the database owner. Use this read-only check first if unsure whether it has run:
@@ -119,28 +150,24 @@ One browser profile on the kiosk hostname has one active restaurant registration
 1. Open **SQL Editor → New query** in your existing project. Review and run [the foundation migration](supabase/migrations/20261119000100_timesheet_foundation.sql) **once** as the project database owner. It creates six tables, indexes, policies and a private helper in a single transaction. It installs the supported `btree_gist` extension if needed. An object-name collision aborts the transaction. Inspect any conflict before retrying. Running the app never applies the migration.
 2. In **Project Settings → Data API**, check that the Data API is enabled and that `public` is an exposed schema. Keep `timesheet_private` outside the exposed schemas. The migration supplies the required grants and row policies.
 3. Under **Authentication → Sign In / Providers**, enable the **Email** provider. For this staff-only app, disable **Allow new users to sign up** if the project is dedicated to this app. This setting is project-wide. Sign-in uses email and password and requires no OAuth callback. [Supabase Auth configuration](https://supabase.com/docs/guides/auth/general-configuration)
-4. In **Authentication → Users → Add user → Create new user**, create one administrator and one employee with distinct emails and passwords. Use **Auto Confirm User** for these manually provisioned test accounts, or confirm their emails before testing. Copy both user UUIDs. Add roles in the database in the next step.
-5. In **SQL Editor → New query**, replace the two UUID placeholders, business name, timezone and employee name below. Run once to create your first workplace. The single transaction rolls back if either UID is invalid.
+4. In **Authentication → Users → Add user → Create new user**, create and confirm the initial administrator account. Copy its user UUID. The administrator can onboard staff from the app once the migrations are installed.
+5. In **SQL Editor → New query**, replace the administrator UUID placeholder, business name and timezone below. Run once to create your first workplace. The transaction rolls back if the administrator UUID is invalid.
 
 ```sql
 do $$
 declare
   business uuid;
   admin_uid uuid := 'REPLACE_WITH_ADMIN_USER_UUID';
-  employee_uid uuid := 'REPLACE_WITH_EMPLOYEE_USER_UUID';
 begin
   insert into public.organisations (name, timezone)
     values ('Your café', 'Australia/Brisbane') returning id into business;
 
   insert into public.organisation_memberships (organisation_id, user_id, role)
-    values (business, admin_uid, 'admin'), (business, employee_uid, 'employee');
-
-  insert into public.employees (organisation_id, user_id, display_name)
-    values (business, employee_uid, 'Your employee');
+    values (business, admin_uid, 'admin');
 end $$;
 ```
 
-Use your business’s IANA timezone, for example `Australia/Sydney`, `Australia/Adelaide` or `Australia/Perth`. Memberships grant access to individual businesses. An employee membership also needs an active employee record with the same organisation and Auth user ID. To link an additional workplace to an existing account, insert another membership for that organisation.
+Use your business’s IANA timezone, for example `Australia/Sydney`, `Australia/Adelaide` or `Australia/Perth`. Memberships grant access to individual businesses. An employee membership also needs an active employee record with the same organisation and Auth user ID. For employee dashboard access at an additional workplace, invite the employee from that workplace’s directory.
 
 ## Database and access model
 
@@ -157,7 +184,7 @@ All six public tables have RLS enabled and authenticated users have SELECT-only 
 
 The request proxy refreshes auth cookies and disables shared caching on workspace requests. The server verifies identity using `getClaims()` and looks up current memberships using the caller’s Supabase client. Protected data requests verify both the organisation and role. PostgreSQL enforces row access again, independently of the URL or interface. Roles come from database memberships. [Supabase SSR guide](https://supabase.com/docs/guides/auth/server-side/creating-a-client?framework=nextjs) · [Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security)
 
-Composite foreign keys keep employees, devices, reviews and edit history within their organisation. A PostgreSQL exclusion constraint rejects overlapping sessions, including two open sessions for one employee, even during concurrent inserts. Back-to-back sessions are valid. Times use `timestamptz`. Archive staff by setting `employees.active` to false. This removes employee workspace access while preserving historical records for administrators. Set `organisation_memberships.active` to false to revoke a membership of either role.
+Composite foreign keys keep employees, devices, reviews and edit history within their organisation. A PostgreSQL exclusion constraint rejects overlapping sessions, including two open sessions for one employee, even during concurrent inserts. Back-to-back sessions are valid. Times use `timestamptz`. Deactivate staff from their profile. This removes employee workspace access while preserving historical records for administrators. Set `organisation_memberships.active` to false to revoke a membership of either role.
 
 ## Verify the installation
 

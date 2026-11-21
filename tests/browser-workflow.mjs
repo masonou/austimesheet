@@ -78,10 +78,10 @@ try {
         ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
         : undefined),
   });
-  async function login(page, email) {
+  async function login(page, email, password = fixture.password) {
     await page.goto(base);
     await page.getByLabel("Work email").fill(email);
-    await page.getByLabel("Password", { exact: true }).fill(fixture.password);
+    await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await page.waitForURL("**/workspace/**");
   }
@@ -280,8 +280,59 @@ try {
   await admin.getByText("Session marked Reviewed.").waitFor();
   await employee.reload();
   await employee.getByText("Reviewed", { exact: true }).waitFor();
+  await admin.getByRole("link", { name: "Employees", exact: true }).click();
+  await admin.getByRole("button", { name: "Add Employee" }).click();
+  let form = admin.getByRole("dialog");
+  await form.getByLabel("Full name").fill("Jordan Lee");
+  await form.getByRole("button", { name: "Save employee" }).click();
+  await admin.getByRole("link", { name: "Jordan Lee" }).click();
+  await admin.getByText("Kiosk only", { exact: true }).waitFor();
+  const address = "jordan@example.test",
+    chosen = "Fixture-employee-login-2026!";
+  await admin.getByRole("button", { name: "Invite to dashboard" }).click();
+  await admin.getByLabel("Invitation email").fill(address);
+  fixture.failInvite();
+  await admin
+    .getByRole("button", { name: "Send invitation", exact: true })
+    .click();
+  await admin.getByText("Email failed", { exact: true }).waitFor();
+  await admin
+    .getByRole("button", { name: "Send invitation", exact: true })
+    .click();
+  await admin.getByText("Invitation pending", { exact: true }).waitFor();
+  const recipient = await browser.newPage();
+  await recipient.goto(fixture.inviteLink(address));
+  await recipient.getByRole("button", { name: "Verify invitation" }).click();
+  await recipient.getByLabel("Choose a password").fill(chosen);
+  await recipient.getByRole("button", { name: "Accept invitation" }).click();
+  await recipient.waitForURL("**/employee");
+  await admin.reload();
+  await admin.getByText("Linked", { exact: true }).waitFor();
+  await admin.getByRole("button", { name: "Deactivate employee" }).click();
+  await admin.getByRole("button", { name: "Confirm status change" }).click();
+  await admin.getByText("Inactive", { exact: true }).waitFor();
+  assert.equal((await recipient.reload()).status(), 404);
+  await admin.getByRole("button", { name: "Reactivate employee" }).click();
+  await admin.getByRole("button", { name: "Confirm status change" }).click();
+  await admin.getByText("Active", { exact: true }).waitFor();
+  await login(recipient, address, chosen);
+  await recipient.getByRole("heading", { name: "My timesheet" }).waitFor();
+  await admin.getByRole("link", { name: "Back to employees" }).click();
+  await admin.getByRole("button", { name: "Add Employee" }).click();
+  form = admin.getByRole("dialog");
+  await form.getByLabel("Full name").fill("Returning staff");
+  await form.getByLabel("Email address (optional)").fill(fixture.existingEmail);
+  await form.getByLabel("Invite to personal dashboard").check();
+  await form.getByRole("button", { name: "Save employee" }).click();
+  await admin.getByText(/Employee added. Invitation sent/).waitFor();
+  const returning = await browser.newPage();
+  await returning.goto(fixture.inviteLink(fixture.existingEmail));
+  await returning.getByRole("button", { name: "Verify invitation" }).click();
+  await returning.getByRole("button", { name: "Accept invitation" }).click();
+  await returning.waitForURL("**/employee");
+  await login(returning, fixture.existingEmail);
   console.log(
-    "PASS simultaneous admin and kiosk tabs on isolated hosts, restaurant binding, employee restrictions, persistent reopening, local exit; one-tap attendance, receipts and revocation; manual session, review, reopen, correction, audit and employee totals.",
+    "PASS kiosk isolation and attendance, timesheet corrections and review, employee creation, invitation retries, new and existing account login, deactivation and reactivation.",
   );
 } finally {
   await browser?.close();
