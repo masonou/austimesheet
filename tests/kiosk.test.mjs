@@ -90,7 +90,7 @@ test("encrypted PIN, scoped reveal, change/reveal audit, editable profile and op
     active: true,
     email: "alex@example.test",
     pinStatus: "none",
-    accountStatus:"Linked",
+    accountStatus:"Linked", canManageLogin:false,
   });
   assert(validPin(newPin()));
   assert(!validPin("12345"));

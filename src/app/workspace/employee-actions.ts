@@ -1,73 +1,13 @@
 "use server";
 
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { changeLogin, type IssuedCredentials } from "@/lib/employee-login";
 import { revalidatePath } from "next/cache";
 import { requireWorkspace } from "@/lib/workspace";
 import { sameOrigin, validUuid, employeePinValues } from "@/lib/kiosk/server";
 import { newPin, validPin } from "@/lib/kiosk/crypto";
-import { origins } from "@/lib/hosts";
-import { serviceClient } from "@/lib/supabase/service";
-import { supabaseConfig } from "@/lib/supabase/config";
-
 const validEmail = (email: string) =>
   email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 const refresh = (org: string) => revalidatePath("/workspace/" + org + "/admin");
-
-async function sendInvitation(
-  client: SupabaseClient,
-  org: string,
-  employee: string,
-  address: string,
-) {
-  const { data: claim, error } = await client
-    .rpc("prepare_employee_invite", { org, employee, address })
-    .retry(false);
-  if (error || !claim)
-    return "Check that the employee is active, unlinked and has a unique workplace email.";
-  const redirectTo = new URL("/auth/employee-invite/" + claim, origins().app)
-    .href;
-  const service = serviceClient();
-  let delivered = false;
-  let invitedUser: string | null = null;
-  try {
-    const invitation = await service.auth.admin.inviteUserByEmail(address, {
-      redirectTo,
-    });
-    if (
-      invitation.error?.code === "email_exists" ||
-      invitation.error?.code === "user_already_exists"
-    ) {
-      const { url, key } = supabaseConfig();
-      const auth = createClient(url, key, {
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-          detectSessionInUrl: false,
-        },
-      });
-      const existing = await auth.auth.signInWithOtp({
-        email: address,
-        options: { shouldCreateUser: false, emailRedirectTo: redirectTo },
-      });
-      delivered = !existing.error;
-    } else if (!invitation.error && invitation.data.user) {
-      invitedUser = invitation.data.user.id;
-      delivered = true;
-    }
-  } finally {
-    const result = await service
-      .rpc("finish_employee_invite", {
-        claim,
-        delivered,
-        invited_user: invitedUser,
-      })
-      .retry(false);
-    if (result.error || !result.data) delivered = false;
-  }
-  return delivered
-    ? ""
-    : "Invitation delivery could not be confirmed. Retry from this profile.";
-}
 
 export async function createEmployee(
   org: string,
@@ -76,18 +16,17 @@ export async function createEmployee(
 ) {
   if (!(await sameOrigin()) || !validUuid(org) || !validUuid(id))
     return { error: "Request unavailable." };
-  const { client } = await requireWorkspace(org, "admin");
+  const { client, userId } = await requireWorkspace(org, "admin");
   const name = String(fields.get("name") ?? "").trim(),
     email = String(fields.get("email") ?? "")
       .trim()
       .toLowerCase();
   const manual = fields.has("pin"),
-    chosen = String(fields.get("pin") ?? ""),
-    invite = fields.get("invite") === "on";
+    chosen = String(fields.get("pin") ?? "");
   if (
     !name ||
     name.length > 120 ||
-    ((email || invite) && !validEmail(email)) ||
+    (email && !validEmail(email)) ||
     (manual && !validPin(chosen))
   )
     return { error: "Check the name, email address and six-digit PIN." };
@@ -104,18 +43,30 @@ export async function createEmployee(
       .retry(false);
     if (!error) {
       let message = created ? "Employee added." : "Employee already added.";
-      if (invite && created) {
-        try {
-          message +=
-            " " +
-            ((await sendInvitation(client, org, id, email)) ||
-              "Invitation sent.");
-        } catch {
-          message += " Check the invitation status in the employee profile.";
+      let credentials: IssuedCredentials | undefined;
+      if (email) {
+        const profile = await client.rpc("employee_profile", {
+          org,
+          employee: id,
+        });
+        if (profile.error)
+          message += " Open the profile to check dashboard access.";
+        if (profile.data?.accountStatus === "Kiosk only") {
+          try {
+            const result = await changeLogin(org, id, userId, "enable", email);
+            credentials = result.credentials;
+            message += result.error
+              ? " " +
+                result.error +
+                " Open the profile to check dashboard access."
+              : " Dashboard access enabled.";
+          } catch {
+            message += " Open the profile to check dashboard access.";
+          }
         }
       }
       refresh(org);
-      return { message };
+      return { message, credentials };
     }
     if (
       error.code === "23505" &&
@@ -137,29 +88,30 @@ export async function createEmployee(
   return { error: "Could not allocate a unique PIN. Try again." };
 }
 
-export async function inviteEmployee(
+export async function manageLogin(
   org: string,
   employee: string,
+  kind: "enable" | "email" | "reset",
   email: string,
 ) {
   if (
     !(await sameOrigin()) ||
     !validUuid(org) ||
     !validUuid(employee) ||
+    !["enable", "email", "reset"].includes(kind) ||
     typeof email !== "string" ||
-    !validEmail(email.trim())
+    (kind !== "reset" && !validEmail(email.trim()))
   )
-    return { error: "Enter a valid email address." };
-  const { client } = await requireWorkspace(org, "admin");
+    return { error: "Check the login email." };
+  const { userId } = await requireWorkspace(org, "admin");
   try {
-    return {
-      error: await sendInvitation(
-        client,
-        org,
-        employee,
-        email.trim().toLowerCase(),
-      ),
-    };
+    return await changeLogin(
+      org,
+      employee,
+      userId,
+      kind,
+      email.trim().toLowerCase(),
+    );
   } finally {
     refresh(org);
   }

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { before, after, test } from "node:test";
 import { randomUUID } from "node:crypto";
-import { workplace, roleQuery, testDatabase } from "./kiosk-db.mjs";
+import {
+  workplace,
+  roleQuery,
+  testDatabase,
+  applyUpgrade,
+} from "./kiosk-db.mjs";
 import {
   newToken,
   tokenDigest,
@@ -50,17 +55,32 @@ async function create(
   return { id, verifier, inserted };
 }
 const profile = (f, id) => asUser(f.admin, "employee_profile", [f.org, id]);
-const prepare = (f, id, mail) =>
-  asUser(f.admin, "prepare_employee_invite", [f.org, id, mail]);
-const active = (f, id, enabled) =>
-  asUser(f.admin, "set_employee_active", [f.org, id, enabled]);
-async function authUser(mail, confirmed = true) {
-  const uid = randomUUID();
-  await db.query(
-    "insert into auth.users(id,email,email_confirmed_at,encrypted_password) values($1,$2,case when $3 then now() end,'fixture-hash')",
-    [uid, mail, confirmed],
-  );
-  return uid;
+
+const stage = (f, e, operation, address, actor = f.admin) =>
+  service("prepare_dashboard_login", [f.org, e.id, actor, operation, address]);
+async function provision(op, uid = op.userId) {
+  await db.transaction(async (tx) => {
+    await tx.query(
+      "insert into auth.users(id,email,encrypted_password) values($1,$2,'supabase-hash')",
+      [uid, op.address],
+    );
+    await tx.query(
+      "update auth.users set raw_app_meta_data=$1,email_confirmed_at=now() where id=$2",
+      [{ shiftbook_dashboard_change: op.nonce }, uid],
+    );
+  });
+}
+async function reset(uid, op) {
+  await db.transaction(async (tx) => {
+    await tx.query(
+      "update auth.users set encrypted_password='replacement-hash' where id=$1",
+      [uid],
+    );
+    await tx.query("update auth.users set raw_app_meta_data=$1 where id=$2", [
+      { shiftbook_dashboard_change: op.nonce },
+      uid,
+    ]);
+  });
 }
 
 test("atomic kiosk-only creation, PIN uniqueness, request retries and later account linking preserve shifts", async () => {
@@ -101,172 +121,269 @@ test("atomic kiosk-only creation, PIN uniqueness, request retries and later acco
     [e.id],
   );
   assert.equal((await clock()).action, "out");
-  const mail = "jordan@example.test",
-    uid = await authUser(mail);
-  const ticket = await prepare(f, e.id, mail);
-  assert.equal(await asUser(uid, "employee_invite_details", [ticket]), null);
-  assert(await service("finish_employee_invite", [ticket, true]));
-  assert.deepEqual(
-    await roleQuery(db, "authenticated", uid, "select id from work_sessions"),
-    [],
+  const operation = await stage(f, e, "enable", "jordan@example.test");
+  await provision(operation);
+  const uid = operation.userId;
+  assert.equal((await profile(f, e.id)).accountStatus, "Linked");
+  await db.query(
+    "insert into work_sessions(organisation_id,employee_id,started_at) values($1,$2,now())",
+    [f.org, f.employee],
   );
-  assert.equal(await asUser(uid, "accept_employee_invite", [ticket]), f.org);
   const shifts = () =>
     roleQuery(
       db,
       "authenticated",
       uid,
-      "select id,employee_id from work_sessions",
+      "select employee_id from work_sessions",
     );
-  const recorded = await shifts();
-  assert.equal(recorded[0].employee_id, e.id);
-  assert.equal((await profile(f, e.id)).accountStatus, "Linked");
-  await assert.rejects(asUser(uid, "accept_employee_invite", [ticket]));
-  await active(f, e.id, false);
-  assert.equal((await clock()).status, "invalid");
-  assert.deepEqual(await shifts(), []);
-  await active(f, e.id, true);
-  assert.deepEqual(await shifts(), recorded);
+  assert.deepEqual(await shifts(), [{ employee_id: e.id }]);
+  const pins = () =>
+    db.query(
+      "select verifier,sealed_pin,revision from timesheet_private.employee_pins where employee_id=$1",
+      [e.id],
+    );
+  const before = (await pins()).rows;
+  await reset(uid, await stage(f, e, "reset", null));
+  assert.deepEqual((await pins()).rows, before);
+  await asUser(f.admin, "set_employee_pin", [
+    f.org,
+    e.id,
+    "b".repeat(64),
+    sealPin(f.org, e.id, "222222", key),
+  ]);
   assert.equal(
     (
-      await db.query(
-        "select count(*)::int as n from timesheet_private.pin_audit where employee_id=$1",
-        [e.id],
-      )
-    ).rows[0].n,
-    1,
+      await db.query("select encrypted_password from auth.users where id=$1", [
+        uid,
+      ])
+    ).rows[0].encrypted_password,
+    "replacement-hash",
   );
+  await asUser(f.admin, "set_employee_active", [f.org, e.id, false]);
+  assert.deepEqual(await shifts(), []);
+  await asUser(f.admin, "set_employee_active", [f.org, e.id, true]);
+  assert.deepEqual(await shifts(), [{ employee_id: e.id }]);
 });
 
-test("delivery failures can be retried, superseded links fail, account ID and confirmed email are both required", async () => {
-  const f = await workplace(db),
-    mail = "new@example.test",
-    e = await create(f, { mail }),
-    uid = await authUser(mail, false);
-  await assert.rejects(create(f, { mail: mail.toUpperCase(), pin: "999999" }), {
-    code: "23505",
-  });
-  assert.equal((await profile(f, e.id)).email, mail);
-  const first = await prepare(f, e.id, mail);
-  assert.equal(await service("finish_employee_invite", [first, false]), false);
-  assert.equal((await profile(f, e.id)).accountStatus, "Email failed");
-  const second = await prepare(f, e.id, mail);
-  assert.notEqual(first, second);
-  assert.equal(await service("finish_employee_invite", [first, true]), false);
-  assert(await service("finish_employee_invite", [second, true, uid]));
-  await assert.rejects(asUser(uid, "accept_employee_invite", [second]));
-  await db.query("update auth.users set email_confirmed_at=now() where id=$1", [
-    uid,
-  ]);
-  await assert.rejects(asUser(f.worker, "accept_employee_invite", [second]));
-  await db.query(
-    "update auth.users set email='changed@example.test' where id=$1",
-    [uid],
-  );
-  await assert.rejects(asUser(uid, "accept_employee_invite", [second]));
-  await active(f, e.id, false);
-  await active(f, e.id, true);
-  assert.equal(await asUser(uid, "employee_invite_details", [second]), null);
-});
-
-test("onboarding and delivery are role scoped; acceptance preserves existing roles and unique employee links", async () => {
+test("Auth writes roll back for duplicate, stale, wrong-target and unauthorised operations", async () => {
   const f = await workplace(db),
     other = await workplace(db),
-    mail = "owner@example.test",
-    e = await create(f, { mail });
-  for (const uid of [f.worker, other.admin]) {
-    await assert.rejects(create(f, { actor: uid }), { code: "42501" });
-    await assert.rejects(
-      asUser(uid, "set_employee_active", [f.org, e.id, false]),
-      { code: "42501" },
-    );
-    await assert.rejects(
-      asUser(uid, "prepare_employee_invite", [f.org, e.id, mail]),
-      { code: "42501" },
-    );
-  }
+    e = await create(f);
+  await db.query(
+    "update auth.users set email='owner@example.test' where id=$1",
+    [other.admin],
+  );
   await assert.rejects(
-    asUser(f.admin, "finish_employee_invite", [randomUUID(), true]),
+    stage(f, e, "enable", "owner@example.test"),
+    /unavailable/,
+  );
+  await assert.rejects(
+    stage(f, e, "enable", "fresh@example.test", other.admin),
     { code: "42501" },
   );
-  await db.query(
-    "update auth.users set email=$1,email_confirmed_at=now(),encrypted_password='existing' where id=$2",
-    [mail, f.admin],
+  await assert.rejects(stage(f, e, "enable", "fresh@example.test", f.worker), {
+    code: "42501",
+  });
+  await assert.rejects(
+    asUser(f.admin, "prepare_dashboard_login", [
+      f.org,
+      e.id,
+      f.admin,
+      "enable",
+      "fresh@example.test",
+    ]),
+    { code: "42501" },
   );
-  const ticket = await prepare(f, e.id, mail);
-  await service("finish_employee_invite", [ticket, true]);
-  await assert.rejects(asUser(f.admin, "accept_employee_invite", [ticket]));
+  const stale = await stage(f, e, "enable", "fresh@example.test");
+  const current = await stage(f, e, "enable", "fresh@example.test");
+  await assert.rejects(provision(stale));
+  await assert.rejects(provision(current, randomUUID()));
+  await provision(current);
+  await assert.rejects(stage(f, e, "enable", "other@example.test"));
+  const pending = await stage(f, e, "reset", null);
+  await db.query(
+    "insert into organisation_memberships values($1,$2,'admin',true)",
+    [other.org, current.userId],
+  );
+  await assert.rejects(reset(current.userId, pending), { code: "42501" });
+  await assert.rejects(stage(f, e, "reset", null));
   assert.equal(
     (
-      await db.query(
-        "select role from organisation_memberships where organisation_id=$1 and user_id=$2",
-        [f.org, f.admin],
-      )
-    ).rows[0].role,
-    "admin",
+      await db.query("select encrypted_password from auth.users where id=$1", [
+        current.userId,
+      ])
+    ).rows[0].encrypted_password,
+    "supabase-hash",
   );
-  const linkedMail = "linked@example.test";
-  await db.query("update auth.users set email=$1 where id=$2", [
-    linkedMail,
-    f.worker,
-  ]);
-  await assert.rejects(prepare(f, e.id, linkedMail), /already in directory/);
-  await assert.rejects(prepare(other, e.id, mail), /unavailable/);
+  assert.equal((await profile(f, e.id)).canManageLogin, false);
 });
 
-test("expired invitations, revoked sponsors, passwordless invites and duplicate account links cannot complete", async () => {
-  const f = await workplace(db),
-    mail = "staff@example.test",
-    uid = await authUser(mail);
-  const e = await create(f, { mail });
-  const ticket = await prepare(f, e.id, mail);
-  await service("finish_employee_invite", [ticket, true]);
-  const accept = () => asUser(uid, "accept_employee_invite", [ticket]);
-  await db.query("update auth.users set encrypted_password=null where id=$1", [
-    uid,
-  ]);
-  assert(
-    (await asUser(uid, "employee_invite_details", [ticket])).needsPassword,
+test("all Shiftbook tables enforce RLS and operational records have no client grants or policies", async () => {
+  assert.deepEqual(
+    (
+      await db.query(
+        "select relname from pg_class where relnamespace in ('public'::regnamespace,'timesheet_private'::regnamespace) and relkind='r' and not relrowsecurity",
+      )
+    ).rows,
+    [],
   );
-  await assert.rejects(accept(), { code: "42501" });
-  await db.query(
-    "update auth.users set encrypted_password='employee-chosen' where id=$1",
-    [uid],
-  );
-  await db.query(
-    "update timesheet_private.employee_invites set expires_at=now()-interval '1 second' where ticket=$1",
-    [ticket],
-  );
-  await assert.rejects(accept(), { code: "42501" });
-  await db.query(
-    "update timesheet_private.employee_invites set expires_at=now()+interval '1 day' where ticket=$1",
-    [ticket],
-  );
-  await db.query(
-    "update organisation_memberships set active=false where user_id=$1",
-    [f.admin],
-  );
-  await assert.rejects(accept(), { code: "42501" });
-  await db.query(
-    "update organisation_memberships set active=true where user_id=$1",
-    [f.admin],
-  );
-  await db.query(
-    "insert into organisation_memberships(organisation_id,user_id,role) values($1,$2,'employee')",
-    [f.org, uid],
-  );
-  await db.query(
-    "insert into employees(organisation_id,user_id,display_name) values($1,$2,'Another profile')",
-    [f.org, uid],
-  );
-  await assert.rejects(accept(), { code: "23505" });
+  for (const role of ["anon", "authenticated", "service_role"]) {
+    const table = "timesheet_private.dashboard_login_changes";
+    assert.equal(
+      (
+        await db.query(
+          "select has_table_privilege($1,$2,'select,insert,update,delete') as allowed",
+          [role, table],
+        )
+      ).rows[0].allowed,
+      false,
+    );
+    await assert.rejects(roleQuery(db, role, null, "select * from " + table), {
+      code: "42501",
+    });
+    for (const fn of [
+      "prepare_employee_invite(uuid,uuid,text)",
+      "finish_employee_invite(uuid,boolean,uuid)",
+      "employee_invite_details(uuid)",
+      "accept_employee_invite(uuid)",
+    ])
+      assert.equal(
+        (
+          await db.query(
+            "select has_function_privilege($1,$2,'execute') as allowed",
+            [role, "public." + fn],
+          )
+        ).rows[0].allowed,
+        false,
+      );
+  }
   assert.equal(
     (
       await db.query(
-        "select count(*)::int as n from employees where id=$1 and user_id is not null",
-        [e.id],
+        "select count(*)::int n from pg_policies where schemaname='timesheet_private' and tablename='dashboard_login_changes'",
       )
     ).rows[0].n,
     0,
+  );
+});
+
+test("upgrade preserves existing passwords, email tokens, invitations, attendance and effective memberships", async () => {
+  const prior = await testDatabase({ legacy: true });
+  try {
+    const f = await workplace(prior),
+      ticket = randomUUID();
+    await applyUpgrade(prior, {
+      beforePinLogin: async () => {
+        await prior.query(
+          "update auth.users set email='legacy@example.test',email_confirmed_at=now(),encrypted_password='existing',recovery_token='pending' where id=$1",
+          [f.worker],
+        );
+        await prior.query(
+          "insert into auth.one_time_tokens values($1,'recovery_token')",
+          [f.worker],
+        );
+        await prior.query(
+          "insert into timesheet_private.employee_invites(employee_id,organisation_id,ticket,recipient,invited_by,expires_at,delivery,recipient_user) values($1,$2,$3,'legacy@example.test',$4,now()+interval '1 day','sent',$5)",
+          [f.employee, f.org, ticket, f.admin, f.worker],
+        );
+        await prior.query(
+          "insert into work_sessions(organisation_id,employee_id,started_at) values($1,$2,now())",
+          [f.org, f.employee],
+        );
+      },
+    });
+    assert.deepEqual(
+      (
+        await prior.query(
+          "select encrypted_password,recovery_token from auth.users where id=$1",
+          [f.worker],
+        )
+      ).rows,
+      [{ encrypted_password: "existing", recovery_token: "pending" }],
+    );
+    assert.equal(
+      (
+        await prior.query(
+          "select * from auth.one_time_tokens where user_id=$1",
+          [f.worker],
+        )
+      ).rows.length,
+      1,
+    );
+    assert.equal(
+      (
+        await prior.query(
+          "select ticket from timesheet_private.employee_invites",
+        )
+      ).rows[0].ticket,
+      ticket,
+    );
+    assert.deepEqual(
+      await roleQuery(
+        prior,
+        "authenticated",
+        f.worker,
+        "select employee_id from work_sessions",
+      ),
+      [{ employee_id: f.employee }],
+    );
+    await assert.rejects(
+      roleQuery(
+        prior,
+        "authenticated",
+        f.worker,
+        "select accept_employee_invite($1)",
+        [ticket],
+      ),
+      { code: "42501" },
+    );
+  } finally {
+    await prior.close();
+  }
+});
+
+test("only an explicit reset can replace an existing employee password; revoked sponsor rolls back", async () => {
+  const f = await workplace(db),
+    e = { id: f.employee };
+  await db.query(
+    "update auth.users set email='existing@example.test', email_confirmed_at=now(),encrypted_password='legacy' where id=$1",
+    [f.worker],
+  );
+  assert.equal((await profile(f, e.id)).canManageLogin, true);
+  const op = await stage(f, e, "reset", null);
+  assert.equal(op.userId, f.worker);
+  assert.equal(
+    (
+      await db.query("select encrypted_password from auth.users where id=$1", [
+        f.worker,
+      ])
+    ).rows[0].encrypted_password,
+    "legacy",
+  );
+  await db.query(
+    "update organisation_memberships set active=false where organisation_id=$1 and user_id=$2",
+    [f.org, f.admin],
+  );
+  await assert.rejects(reset(f.worker, op), { code: "42501" });
+  assert.equal(
+    (
+      await db.query("select encrypted_password from auth.users where id=$1", [
+        f.worker,
+      ])
+    ).rows[0].encrypted_password,
+    "legacy",
+  );
+  await db.query(
+    "update organisation_memberships set active=true where organisation_id=$1 and user_id=$2",
+    [f.org, f.admin],
+  );
+  await reset(f.worker, await stage(f, e, "reset", null));
+  assert.equal(
+    (
+      await db.query("select encrypted_password from auth.users where id=$1", [
+        f.worker,
+      ])
+    ).rows[0].encrypted_password,
+    "replacement-hash",
   );
 });

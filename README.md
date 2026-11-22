@@ -24,36 +24,42 @@ Open [localhost:3000](http://localhost:3000). Keep the existing `NEXT_PUBLIC_SUP
 
 The weekly window runs from local Monday midnight up to the following Monday. Each session shows its full elapsed duration. Weekly totals count only the portion of completed sessions inside that week, including over midnight and daylight-saving transitions. Open sessions appear as open and accrue no displayed total until closed.
 
-## Employee onboarding rollout
+## Employee dashboard password rollout
 
-On an existing Phase 3A installation, open **Supabase → SQL Editor → New query** and run the complete [employee onboarding migration](supabase/migrations/20261121000300_employee_onboarding.sql) once as the database owner. It adds an optional staff contact email and a private invitation record, and reuses the existing PIN encryption, audit and employee IDs. If unsure whether it is installed, run `select to_regprocedure('public.accept_employee_invite(uuid)') is not null as installed;` first. Deploy the updated application with the existing environment variables.
+A workplace PIN is six digits and is used for kiosk attendance. A dashboard login uses an email and an independent, server-generated 24-character password. An admin sees the generated email/password pair once after provisioning or a confirmed reset. Give it to the employee privately, then choose **Done**. Closing or refreshing the page or hiding the tab also clears the display. To replace a lost password, issue a new one from the employee profile. Supabase stores the password hash. Shiftbook does not store, log or offer later retrieval of the dashboard password.
 
-### Supabase Auth email setup
+### Which SQL to run
 
-1. Enable the Email provider. **Authentication → URL Configuration → Site URL** should be the main app origin. Under **Redirect URLs**, add `http://localhost:3000/auth/employee-invite/*` for local testing and `https://YOUR-APP-DOMAIN/auth/employee-invite/*` for production, using the actual `SHIFTBOOK_APP_ORIGIN`. The final segment is a per-invitation UUID. [Supabase redirect URLs](https://supabase.com/docs/guides/auth/redirect-urls)
-2. In **Authentication → Email Templates**, set the invitation button in **Invite user** to the following link. The recipient clicks **Verify invitation** on the app before Supabase consumes the token. [Supabase email templates](https://supabase.com/docs/guides/auth/auth-email-templates)
+1. In **Supabase → SQL Editor → New query**, this read-only check identifies the prerequisite and the two versions of the unapplied draft:
 
-   ```html
-   <a href="{{ .RedirectTo }}#token_hash={{ .TokenHash }}&amp;type=invite">Open employee invitation</a>
+   ```sql
+   select to_regprocedure('public.create_employee(uuid,uuid,text,text,text,text)') is not null as onboarding_installed,
+          to_regprocedure('public.prepare_login_change(uuid,uuid,uuid,text,text,text,text)') is not null as old_pin_draft_installed,
+          to_regprocedure('public.prepare_dashboard_login(uuid,uuid,uuid,text,text)') is not null as password_rollout_installed;
    ```
 
-3. In **Magic Link**, use the following link for invitations to existing accounts. These templates apply project-wide. If the project also sends unrelated magic links, preserve their existing flow when configuring templates. Shiftbook uses the existing account’s password after acceptance. [Supabase invitation API](https://supabase.com/docs/reference/javascript/auth-admin-inviteuserbyemail)
+2. For **true, false, false**, review and run **only** the complete [20261122000100_employee_pin_login.sql](supabase/migrations/20261122000100_employee_pin_login.sql) once as the project database owner. The existing filename retains its migration version. A missing prerequisite requires applying only the missing earlier migrations in order. If the old PIN draft is present, stop and review the installed schema before choosing an upgrade. If the password rollout is already installed, skip it.
+3. Open a fresh SQL Editor tab and paste the **whole revised file**, including `begin` and `commit`. Review the target project, table name, immediate `ENABLE ROW LEVEL SECURITY`, grants, and four retired invitation permissions. Choose **Run** with no partial selection. Using Studio's published checks, neither a destructive-query warning nor a missing-RLS warning is expected for the full revised SQL. If Studio asks for a general confirmation and the displayed changes match this review, choose **Run query**. If it specifically reports missing RLS, cancel and verify the complete SQL. The migration supplies its own RLS statement. [Studio query checks](https://github.com/supabase/supabase/blob/master/apps/studio/components/interfaces/SQLEditor/SQLEditor.utils.ts) · [Studio confirmation options](https://github.com/supabase/supabase/blob/master/apps/studio/components/interfaces/SQLEditor/RunQueryWarningModal.tsx)
+4. Under **Authentication → Sign In / Providers**, enable email/password and keep the project's password strength, rate limits and email-confirmation settings. On a private dedicated project, public signup can stay disabled. The server calls `admin.createUser` with an explicit fresh user ID and `email_confirm: true`. The address is assigned by the workplace and mailbox ownership has not been verified. Provisioning and password resets have no SMTP, invitation redirect or paid Auth Hook dependency. The two ordinary Postgres triggers validate only changes bearing Shiftbook's server-written operation ID. Keep the existing app environment variables, including the server-only Supabase secret and both existing kiosk PIN keys, then deploy the updated app. [Supabase admin provisioning](https://supabase.com/docs/reference/javascript/auth-admin-createuser) · [Supabase admin updates](https://supabase.com/docs/reference/javascript/auth-admin-updateuserbyid)
 
-   ```html
-   <a href="{{ .RedirectTo }}#token_hash={{ .TokenHash }}&amp;type=magiclink">Open employee invitation</a>
-   ```
+### Audit of the withdrawn PIN-login draft
 
-4. Configure **custom SMTP** in Supabase Auth with your sender and delivery credentials before inviting ordinary staff addresses. The hosted default mailer restricts delivery to authorised project team addresses. Keep the Supabase secret key in the server environment. [Supabase SMTP setup](https://supabase.com/docs/guides/auth/auth-smtp)
+| Previous statement or object | Effect and decision |
+| --- | --- |
+| `DROP FUNCTION` on `prepare_employee_invite`, `finish_employee_invite`, `employee_invite_details` and `accept_employee_invite` | Removed four APIs. Retiring their execution permissions is sufficient to stop outstanding Shiftbook invitations granting a membership. The revised file revokes those permissions and retains the functions and historical invitation rows. |
+| `DELETE FROM auth.one_time_tokens` for bound recipients, and `UPDATE auth.users` to clear `confirmation_token`, `recovery_token`, `confirmation_sent_at` and `recovery_sent_at` | Could invalidate an unrelated confirmation or recovery request for a recipient. Both statements were removed. Supabase-issued links follow their existing Auth expiry. |
+| New private tables `login_changes` and `login_limits` | Stored pending credential-change information and rate-limit buckets. Both had revoked client grants but neither enabled RLS. The revised file creates only `timesheet_private.dashboard_login_changes`, enables RLS in the same transaction, and revokes all table privileges from PUBLIC, anonymous, authenticated and service roles. It has zero client policies. Its owner accesses it through narrowly granted definer functions. |
+| Runtime deletes inside functions | The completed-change trigger deleted the consumed `login_changes` row. The form limiter deleted stale `login_limits` rows, and the password hook deleted an account's failure counter on successful verification. Other writes in those routines replaced pending operation details on retry, advanced or reset rate-limit counters and consumed short-lived sign-in permits. These were runtime operations. The revised code records completion on the single per-employee operation row and uses standard Supabase password authentication. |
+| PIN setter rename, grants, function replacements and triggers | The old draft renamed `set_employee_pin`, replaced the profile and `my_role` functions, added `employees.pin_login_since` and an index, and installed credential, membership and session triggers. At runtime it could overwrite PIN verifiers/envelopes, change credential revisions, and deny previously usable sessions through existing RLS policies. This revision keeps the installed PIN setter, role checks, memberships and policies. It updates the admin profile function to show dashboard status. |
 
-### Test an employee from first shift to dashboard
+Applying the revised migration performs no data backfill, account reset, token cleanup, deletion or policy replacement. Later, a successful explicit admin action can create an employee membership, link its employee row, update the login address, or replace the Supabase password. The operation table contains request metadata only. A conflicting or superseded operation rolls back inside the Auth transaction.
 
-1. In **Admin → Employees → Add Employee**, enter a full name. Choose a six-digit PIN or leave **Generate randomly** selected. Save and open the new profile. Use **Reveal PIN** and record a shift on the authorised kiosk.
-2. From that same profile choose **Invite to dashboard**, enter the employee's email and send. To send at creation, enter an email and tick **Invite to personal dashboard** in the add form. Entering an email alone saves a contact address.
-3. Open the email in the employee’s browser profile. Choose **Verify invitation**, check the workplace and email, set a password if prompted, then **Accept invitation**. Confirm that the earlier shift is visible in **My timesheet**. Sign out and sign back in with the employee's password.
-4. In the admin profile use **Deactivate employee → Confirm status change**. Clocking and effective employee dashboard access stop. **View timesheets** still opens the historical shifts. Reactivate to restore eligibility for the existing link. An open shift can be completed in the administrator timesheet editor.
-5. To retry a failed or expired invitation, use **Resend invitation** on the same profile. Each resend supersedes the previous workplace link. Shiftbook allows acceptance for 24 hours, and the email token also has Supabase's configured expiry. Deactivation cancels outstanding invitations. An email delivery failure leaves the employee available for kiosk attendance.
+### Verify onboarding
 
-Invitations bind one employee row, one workplace and one confirmed Supabase user ID. The acceptance transaction checks the recipient, active employee and inviting administrator, then creates or reuses only an active employee membership. It refuses to replace existing roles or link two staff records in the same workplace to one user. Just adding a contact email grants no dashboard access.
+1. In **Admin → Employees → Add Employee**, enter a name, an unused email and a chosen or generated kiosk PIN. Save, record the displayed dashboard credentials privately, and choose **Done**. Sign in from a separate browser with the email and generated password. Use the six-digit PIN at the authorised kiosk and confirm the recorded shift appears in the employee dashboard.
+2. Use **Change PIN**, then verify the existing dashboard password still works. Choose **Reset dashboard password → Confirm password reset**. Verify the new password works, the previous password fails, and the workplace kiosk still accepts the same PIN.
+3. Omit email to add kiosk-only staff. From their existing profile, **Enable dashboard access** adds the new login and preserves historical shifts. A disputed or already-registered address requires a different unused address for a new account. If provisioning fails after the employee was created, retry from that employee's profile. If a successful delivery response was lost, an admin can issue a fresh password.
+4. Existing linked employees keep their current login, password and history. An active single-workplace employee account can have its password explicitly reset or login email changed. A confirmed reset changes the password for that Supabase identity across the project, including any other app sharing that identity. Accounts with administrator or other workplace memberships, elevated Auth roles or non-email providers are excluded. Deactivation continues to remove access to that workplace and its kiosk.
 
 ## Phase 3A timesheet management
 
@@ -167,7 +173,7 @@ begin
 end $$;
 ```
 
-Use your business’s IANA timezone, for example `Australia/Sydney`, `Australia/Adelaide` or `Australia/Perth`. Memberships grant access to individual businesses. An employee membership also needs an active employee record with the same organisation and Auth user ID. For employee dashboard access at an additional workplace, invite the employee from that workplace’s directory.
+Use your business’s IANA timezone, for example `Australia/Sydney`, `Australia/Adelaide` or `Australia/Perth`. Memberships grant access to individual businesses. An employee membership also needs an active employee record with the same organisation and Auth user ID. New employee dashboard logins require an unused email address.
 
 ## Database and access model
 
@@ -180,7 +186,7 @@ Use your business’s IANA timezone, for example `Australia/Sydney`, `Australia/
 | `work_sessions` | Own sessions for employees, all workplace sessions for administrators. Includes optional notes, clock-device references and review attribution. |
 | `timesheet_edit_history` | Workplace administrators only. Holds session changes, before/after values, administrator, timestamp and reason. |
 
-All six public tables have RLS enabled and authenticated users have SELECT-only table grants. The private `employee_pins` and `kiosk_credentials` tables have RLS and no client table grants. Administrator mutations use the caller's Supabase session and check active admin membership again inside each function. Only the server's service role can execute the kiosk attendance, receipt and heartbeat RPCs. Those functions require the device digest and derive the organisation from its registration. SQL Editor runs with administrative privileges.
+All six public tables have RLS enabled and authenticated users have SELECT-only table grants. The private `employee_pins` and `kiosk_credentials` tables have RLS and no client table grants. Administrator actions require an active workplace administrator session. Dashboard login changes additionally use the server-only Auth Admin API and recheck membership when Auth commits the write. Only the server's service role can execute the kiosk attendance, receipt and heartbeat RPCs. Those functions require the device digest and derive the organisation from its registration. SQL Editor runs with administrative privileges.
 
 The request proxy refreshes auth cookies and disables shared caching on workspace requests. The server verifies identity using `getClaims()` and looks up current memberships using the caller’s Supabase client. Protected data requests verify both the organisation and role. PostgreSQL enforces row access again, independently of the URL or interface. Roles come from database memberships. [Supabase SSR guide](https://supabase.com/docs/guides/auth/server-side/creating-a-client?framework=nextjs) · [Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security)
 

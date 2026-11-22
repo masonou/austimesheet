@@ -35,13 +35,18 @@ export async function browserFixture() {
       "update auth.users set email=$1,email_confirmed_at=now(),encrypted_password='existing' where id=$2",
       [address, id],
     );
-  const mail = new Map(),
-    tokens = new Map();
-  let failInvitation = false;
-  function issue(address) {
+  let emailRequests = 0;
+  async function issue(address) {
     const id = ids.get(address);
+    const session = randomUUID();
+    await db.query("insert into auth.sessions(id,user_id) values($1,$2)", [
+      session,
+      id,
+    ]);
     const user = {
       id,
+      session_id: session,
+      amr: [{ method: "password" }],
       aud: "authenticated",
       role: "authenticated",
       email: address,
@@ -55,7 +60,6 @@ export async function browserFixture() {
       encode({
         ...user,
         sub: id,
-        session_id: random(),
         exp: Math.floor(Date.now() / 1000) + 3600,
       });
     const token =
@@ -81,10 +85,13 @@ export async function browserFixture() {
       "envelope",
     ],
     set_employee_active: ["org", "employee", "enabled"],
-    prepare_employee_invite: ["org", "employee", "address"],
-    finish_employee_invite: ["claim", "delivered", "invited_user"],
-    employee_invite_details: ["claim"],
-    accept_employee_invite: ["claim"],
+    prepare_dashboard_login: [
+      "org",
+      "employee",
+      "actor",
+      "operation",
+      "address",
+    ],
     manage_work_session: [
       "org",
       "employee",
@@ -139,63 +146,61 @@ export async function browserFixture() {
           : user
             ? "authenticated"
             : "anon";
-      if (path === "/auth/v1/token")
+      if (path === "/auth/v1/token") {
         return passwords.has(body.email) &&
           passwords.get(body.email) === body.password
-          ? send(200, issue(body.email))
+          ? send(200, await issue(body.email))
           : send(400, {});
+      }
       if (path === "/auth/v1/invite" || path === "/auth/v1/otp") {
-        const invite = path.endsWith("/invite");
-        if (invite && role !== "service_role") return send(403, {});
-        if (failInvitation) {
-          failInvitation = false;
-          return send(400, {
-            code: "email_address_not_authorized",
-            message: "Fixture delivery failure",
+        emailRequests++;
+        return send(400, {});
+      }
+      if (
+        path === "/auth/v1/admin/users" ||
+        path.startsWith("/auth/v1/admin/users/")
+      ) {
+        if (role !== "service_role") return send(403, {});
+        const creating = req.method === "POST",
+          uid = creating ? body.id : path.split("/").pop();
+        const prior = [...ids.keys()].find(
+          (address) => ids.get(address) === uid,
+        );
+        const address = body.email || prior;
+        if (!address || (ids.has(address) && ids.get(address) !== uid))
+          return send(422, {
+            code: "email_exists",
+            message: "Email unavailable",
           });
-        }
-        if (invite && passwords.has(body.email))
-          return send(422, { code: "email_exists", message: "Email exists" });
-        if (!invite && (!ids.has(body.email) || body.create_user !== false))
-          return send(400, {});
-        if (!ids.has(body.email)) {
-          const uid = randomUUID();
-          ids.set(body.email, uid);
-          await db.query(
-            "insert into auth.users(id,email,invited_at) values($1,$2,now())",
-            [uid, body.email],
+        await db.transaction(async (tx) => {
+          if (creating)
+            await tx.query(
+              "insert into auth.users(id,email,encrypted_password) values($1,$2,$3)",
+              [uid, address, random()],
+            );
+          else if (body.password)
+            await tx.query(
+              "update auth.users set encrypted_password=$1 where id=$2",
+              [random(), uid],
+            );
+          else
+            await tx.query("update auth.users set email=$1 where id=$2", [
+              address,
+              uid,
+            ]);
+          await tx.query(
+            "update auth.users set raw_app_meta_data=$1,email_confirmed_at=now() where id=$2",
+            [body.app_metadata, uid],
           );
+        });
+        const nextPassword = body.password ?? passwords.get(prior);
+        if (prior && prior !== address) {
+          passwords.delete(prior);
+          ids.delete(prior);
         }
-        const hash = random(),
-          type = invite ? "invite" : "magiclink";
-        tokens.set(hash, { email: body.email, type });
-        const target = new URL(req.url, "http://localhost").searchParams.get(
-          "redirect_to",
-        );
-        mail.set(body.email, target + "#token_hash=" + hash + "&type=" + type);
-        return send(
-          200,
-          invite
-            ? { id: ids.get(body.email), email: body.email, identities: [] }
-            : {},
-        );
-      }
-      if (path === "/auth/v1/verify") {
-        const delivery = tokens.get(body.token_hash);
-        if (!delivery || delivery.type !== body.type) return send(403, {});
-        tokens.delete(body.token_hash);
-        await db.query(
-          "update auth.users set email_confirmed_at=now() where id=$1",
-          [ids.get(delivery.email)],
-        );
-        return send(200, issue(delivery.email));
-      }
-      if (path === "/auth/v1/user" && req.method === "PUT" && user) {
-        passwords.set(user.email, body.password);
-        await db.query(
-          "update auth.users set encrypted_password='employee-chosen' where id=$1",
-          [user.id],
-        );
+        passwords.set(address, nextPassword);
+        ids.set(address, uid);
+        return send(200, { id: uid, email: address, identities: [] });
       }
       if (path === "/auth/v1/user") return send(user ? 200 : 401, user);
       if (path === "/auth/v1/logout") {
@@ -227,6 +232,7 @@ export async function browserFixture() {
             args.map((_, i) => "$" + (i + 1)).join(",") +
             ") as result",
           args.map((k) => body[k]),
+          user,
         );
         if (name === "clock_with_pin" && dropClockResponse) {
           dropClockResponse = false;
@@ -244,6 +250,7 @@ export async function browserFixture() {
             user?.id,
             "select m.role,jsonb_build_object('id',o.id,'name',o.name,'slug',o.slug,'timezone',o.timezone) as organisations from organisation_memberships m join organisations o on o.id=m.organisation_id where m.user_id=$1",
             [user?.id],
+            user,
           ),
         );
       }
@@ -266,6 +273,7 @@ export async function browserFixture() {
           user?.id,
           "select * from timesheet_edit_history where session_id=$1 order by changed_at desc",
           [sessionId],
+          user,
         );
       else if (name === "work_sessions") {
         const end = params.get("started_at")?.slice(3);
@@ -276,9 +284,17 @@ export async function browserFixture() {
           user?.id,
           "select * from work_sessions where started_at<$1 and (ended_at>$2 or (ended_at is null and (voided_at is null or started_at>=$2))) order by started_at",
           [end, start],
+          user,
         );
       } else
-        rows = await roleQuery(db, role, user?.id, "select * from " + name);
+        rows = await roleQuery(
+          db,
+          role,
+          user?.id,
+          "select * from " + name,
+          [],
+          user,
+        );
       res.setHeader(
         "content-range",
         rows.length ? "0-" + (rows.length - 1) + "/" + rows.length : "*/0",
@@ -295,10 +311,7 @@ export async function browserFixture() {
     password,
     org: f.org,
     existingEmail,
-    inviteLink: (address) => mail.get(address),
-    failInvite: () => {
-      failInvitation = true;
-    },
+    emailRequests: () => emailRequests,
     dropReply: () => {
       dropClockResponse = true;
     },

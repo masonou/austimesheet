@@ -10,14 +10,17 @@ import {
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 
+import type { IssuedCredentials } from "@/lib/employee-login";
+import { useIssuedPassword } from "./issued-password";
 import { PinChoice } from "./pin-choice";
 import {
-  inviteEmployee,
+  manageLogin,
   setEmployeeActive,
 } from "@/app/workspace/employee-actions";
 
 type Profile = {
   accountStatus: string;
+  canManageLogin: boolean;
   id: string;
   name: string;
   email: string | null;
@@ -31,8 +34,9 @@ export function EmployeeProfile({
   org: string;
   profile: Profile;
 }) {
+  const { showPassword, notice } = useIssuedPassword();
   const [editor, setEditor] = useState<
-    "name" | "pin" | "invite" | "status" | null
+    "name" | "pin" | "login" | "reset" | "status" | null
   >(null);
   const [pin, setPin] = useState("");
   const [manual, setManual] = useState(false);
@@ -52,6 +56,7 @@ export function EmployeeProfile({
   }, [pin]);
   const edit = (which: typeof editor) => {
     setPin("");
+    showPassword();
     setEditor(which);
     setMessage("");
   };
@@ -80,11 +85,20 @@ export function EmployeeProfile({
     setPin("");
     setMessage("");
     try {
-      const r =
+      const r: { error?: string; credentials?: IssuedCredentials } =
         editor === "name"
           ? await renameEmployee(org, p.id, String(fields.get("name") ?? ""))
-          : editor === "invite"
-            ? await inviteEmployee(org, p.id, String(fields.get("email") ?? ""))
+          : editor === "login" || editor === "reset"
+            ? await manageLogin(
+                org,
+                p.id,
+                editor === "reset"
+                  ? "reset"
+                  : p.accountStatus === "Linked"
+                    ? "email"
+                    : "enable",
+                String(fields.get("email") ?? ""),
+              )
             : editor === "status"
               ? await setEmployeeActive(org, p.id, !p.active)
               : await assignPin(
@@ -94,13 +108,14 @@ export function EmployeeProfile({
                 );
       if (r.error) setMessage(r.error);
       else {
+        showPassword(r.credentials);
         form.reset();
         setEditor(null);
         setMessage(
           editor === "pin"
             ? "PIN saved. Use Reveal PIN to view it."
-            : editor === "invite"
-              ? "Invitation sent."
+            : editor === "login" || editor === "reset"
+              ? "Dashboard login updated."
               : editor === "status"
                 ? "Employee status updated."
                 : "Name saved.",
@@ -145,8 +160,8 @@ export function EmployeeProfile({
         </div>
         <div className="profile-line">
           <div>
-            <small>Email</small>
-            <p>{p.email || "No email supplied"}</p>
+            <small>Login email</small>
+            <p>{p.email || "Unassigned"}</p>
           </div>
         </div>
         <div className="profile-line">
@@ -154,18 +169,30 @@ export function EmployeeProfile({
             <small>Dashboard account</small>
             <p>{p.accountStatus}</p>
           </div>
-          {p.active && p.accountStatus !== "Linked" && (
-            <button
-              className="quiet-link"
-              disabled={busy}
-              onClick={() => edit("invite")}
-            >
-              {p.accountStatus === "Kiosk only"
-                ? "Invite to dashboard"
-                : "Resend invitation"}
-            </button>
+          {p.active && p.canManageLogin && (
+            <div className="account">
+              <button
+                className="quiet-link"
+                disabled={busy}
+                onClick={() => edit("login")}
+              >
+                {p.accountStatus === "Kiosk only"
+                  ? "Enable dashboard access"
+                  : "Change login email"}
+              </button>
+              {p.accountStatus === "Linked" && (
+                <button
+                  className="quiet-link"
+                  disabled={busy}
+                  onClick={() => edit("reset")}
+                >
+                  Reset dashboard password
+                </button>
+              )}
+            </div>
           )}
         </div>
+        {notice}
         <div className="profile-line">
           <div>
             <small>Assigned PIN</small>
@@ -230,9 +257,14 @@ export function EmployeeProfile({
               </label>
             ) : editor === "pin" ? (
               <PinChoice manual={manual} onChange={setManual} />
-            ) : editor === "invite" ? (
+            ) : editor === "reset" ? (
+              <p>
+                Replace the dashboard password for {p.email}? The new password
+                will be shown once.
+              </p>
+            ) : editor === "login" ? (
               <label>
-                Invitation email
+                Dashboard login email
                 <Input
                   name="email"
                   type="email"
@@ -252,11 +284,13 @@ export function EmployeeProfile({
               <Button disabled={busy}>
                 {editor === "name"
                   ? "Save name"
-                  : editor === "invite"
-                    ? "Send invitation"
-                    : editor === "status"
-                      ? "Confirm status change"
-                      : "Save new PIN"}
+                  : editor === "reset"
+                    ? "Confirm password reset"
+                    : editor === "login"
+                      ? "Save login email"
+                      : editor === "status"
+                        ? "Confirm status change"
+                        : "Save new PIN"}
               </Button>
               <button type="button" disabled={busy} onClick={() => edit(null)}>
                 Cancel

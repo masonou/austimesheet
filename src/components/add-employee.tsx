@@ -3,14 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createEmployee } from "@/app/workspace/employee-actions";
+import { useIssuedPassword } from "./issued-password";
 import { PinChoice } from "./pin-choice";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 
 export function AddEmployee({ org }: { org: string }) {
+  const { showPassword, notice } = useIssuedPassword();
   const dialog = useRef<HTMLDialogElement>(null);
   const [id, setId] = useState(""),
-    [email, setEmail] = useState(""),
     [manual, setManual] = useState(false);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -24,8 +25,8 @@ export function AddEmployee({ org }: { org: string }) {
         onClick={() => {
           setError("");
           setManual(false);
-          setEmail("");
           setAdded(null);
+          showPassword();
           setId(crypto.randomUUID());
         }}
       >
@@ -42,6 +43,7 @@ export function AddEmployee({ org }: { org: string }) {
           </Link>
         </p>
       )}
+      {notice}
       {id && (
         <dialog
           className="shift-dialog"
@@ -65,6 +67,7 @@ export function AddEmployee({ org }: { org: string }) {
               try {
                 const r = await createEmployee(org, id, fields);
                 if (r.message) {
+                  showPassword(r.credentials);
                   setAdded({ id, message: r.message });
                   setId("");
                 } else
@@ -83,23 +86,18 @@ export function AddEmployee({ org }: { org: string }) {
               <Input name="name" maxLength={120} required autoComplete="off" />
             </label>
             <label>
-              Email address (optional)
+              Login email (optional)
               <Input
                 name="email"
                 type="email"
                 maxLength={254}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
                 autoComplete="off"
               />
             </label>
+            <small>
+              Add an email to generate a separate dashboard password.
+            </small>
             <PinChoice manual={manual} onChange={setManual} />
-            {email.trim() && (
-              <label className="invite-choice">
-                <input type="checkbox" name="invite" />
-                Invite to personal dashboard
-              </label>
-            )}
             {error && <p role="alert">{error}</p>}
             <div className="shift-controls">
               <Button disabled={busy}>Save employee</Button>

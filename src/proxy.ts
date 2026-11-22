@@ -42,13 +42,6 @@ export async function proxy(request: NextRequest) {
     return response;
   }
   if (restaurantPath(path) || path === "/kiosk") return deny();
-  if (path.startsWith("/auth/employee-invite/")) {
-    const response = NextResponse.next({ request });
-    response.headers.set("Cache-Control", "private, no-store");
-    response.headers.set("Referrer-Policy", "no-referrer");
-    response.headers.set("X-Robots-Tag", "noindex");
-    return response;
-  }
   if (path !== "/workspace" && !path.startsWith("/workspace/"))
     return NextResponse.next({ request });
   const { url, key } = supabaseConfig();

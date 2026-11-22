@@ -287,27 +287,55 @@ try {
   await form.getByRole("button", { name: "Save employee" }).click();
   await admin.getByRole("link", { name: "Jordan Lee" }).click();
   await admin.getByText("Kiosk only", { exact: true }).waitFor();
-  const address = "jordan@example.test",
-    chosen = "Fixture-employee-login-2026!";
-  await admin.getByRole("button", { name: "Invite to dashboard" }).click();
-  await admin.getByLabel("Invitation email").fill(address);
-  fixture.failInvite();
-  await admin
-    .getByRole("button", { name: "Send invitation", exact: true })
-    .click();
-  await admin.getByText("Email failed", { exact: true }).waitFor();
-  await admin
-    .getByRole("button", { name: "Send invitation", exact: true })
-    .click();
-  await admin.getByText("Invitation pending", { exact: true }).waitFor();
-  const recipient = await browser.newPage();
-  await recipient.goto(fixture.inviteLink(address));
-  await recipient.getByRole("button", { name: "Verify invitation" }).click();
-  await recipient.getByLabel("Choose a password").fill(chosen);
-  await recipient.getByRole("button", { name: "Accept invitation" }).click();
-  await recipient.waitForURL("**/employee");
-  await admin.reload();
+  const address = "jordan@example.test";
+  await admin.getByRole("button", { name: "Reveal PIN" }).click();
+  await admin.getByRole("button", { name: "Hide PIN" }).waitFor();
+  const jordanPin = await admin.locator(".issued-pin").innerText();
+  await admin.getByRole("button", { name: "Enable dashboard access" }).click();
+  await admin.getByLabel("Dashboard login email").fill(address);
+  await admin.getByRole("button", { name: "Save login email" }).click();
   await admin.getByText("Linked", { exact: true }).waitFor();
+  const firstPassword = await admin.getByTestId("issued-password").innerText();
+  assert(firstPassword.length >= 12 && firstPassword !== jordanPin);
+  await admin.getByRole("button", { name: "Done", exact: true }).click();
+  await admin.reload();
+  assert.equal(await admin.getByTestId("issued-password").count(), 0);
+  const recipient = await browser.newPage();
+  await login(recipient, address, firstPassword);
+  await recipient.getByRole("heading", { name: "My timesheet" }).waitFor();
+  await admin.getByRole("button", { name: "Change PIN" }).click();
+  await admin.getByRole("combobox", { name: /New PIN/ }).selectOption("manual");
+  await admin.getByLabel("New six-digit PIN").fill("009542");
+  await admin.getByRole("button", { name: "Save new PIN" }).click();
+  await admin.getByText(/PIN saved/).waitFor();
+  await login(recipient, address, firstPassword);
+  await admin.getByRole("button", { name: "Reset dashboard password" }).click();
+  await admin.getByRole("button", { name: "Confirm password reset" }).click();
+  const nextPassword = await admin.getByTestId("issued-password").innerText();
+  assert(nextPassword.length >= 12 && nextPassword !== firstPassword);
+  await admin.getByRole("button", { name: "Done", exact: true }).click();
+  await admin.getByRole("button", { name: "Reveal PIN" }).click();
+  await admin.getByRole("button", { name: "Hide PIN" }).waitFor();
+  assert.equal(await admin.locator(".issued-pin").innerText(), "009542");
+  await recipient.goto(base);
+  await recipient.getByLabel("Work email").fill(address);
+  await recipient.getByLabel("Password", { exact: true }).fill(firstPassword);
+  await recipient.getByRole("button", { name: "Sign in", exact: true }).click();
+  await recipient
+    .getByText("Sign-in failed. Check your details and try again.", {
+      exact: true,
+    })
+    .waitFor();
+  await recipient.goto(base);
+  await recipient.getByLabel("Work email").fill(address);
+  await recipient.getByLabel("Password", { exact: true }).fill("009542");
+  await recipient.getByRole("button", { name: "Sign in", exact: true }).click();
+  await recipient
+    .getByText("Sign-in failed. Check your details and try again.", {
+      exact: true,
+    })
+    .waitFor();
+  await login(recipient, address, nextPassword);
   await admin.getByRole("button", { name: "Deactivate employee" }).click();
   await admin.getByRole("button", { name: "Confirm status change" }).click();
   await admin.getByText("Inactive", { exact: true }).waitFor();
@@ -315,24 +343,32 @@ try {
   await admin.getByRole("button", { name: "Reactivate employee" }).click();
   await admin.getByRole("button", { name: "Confirm status change" }).click();
   await admin.getByText("Active", { exact: true }).waitFor();
-  await login(recipient, address, chosen);
-  await recipient.getByRole("heading", { name: "My timesheet" }).waitFor();
+  await admin.getByRole("button", { name: "Change login email" }).click();
+  await admin
+    .getByLabel("Dashboard login email")
+    .fill("jordan-new@example.test");
+  await admin.getByRole("button", { name: "Save login email" }).click();
+  await admin.getByText("jordan-new@example.test", { exact: true }).waitFor();
+  await login(recipient, "jordan-new@example.test", nextPassword);
   await admin.getByRole("link", { name: "Back to employees" }).click();
   await admin.getByRole("button", { name: "Add Employee" }).click();
   form = admin.getByRole("dialog");
-  await form.getByLabel("Full name").fill("Returning staff");
-  await form.getByLabel("Email address (optional)").fill(fixture.existingEmail);
-  await form.getByLabel("Invite to personal dashboard").check();
+  await form.getByLabel("Full name").fill("New starter");
+  await form.getByLabel("Login email (optional)").fill("starter@example.test");
+  await form.getByRole("combobox", { name: /New PIN/ }).selectOption("manual");
+  await form.getByLabel("New six-digit PIN").fill("001290");
   await form.getByRole("button", { name: "Save employee" }).click();
-  await admin.getByText(/Employee added. Invitation sent/).waitFor();
-  const returning = await browser.newPage();
-  await returning.goto(fixture.inviteLink(fixture.existingEmail));
-  await returning.getByRole("button", { name: "Verify invitation" }).click();
-  await returning.getByRole("button", { name: "Accept invitation" }).click();
-  await returning.waitForURL("**/employee");
-  await login(returning, fixture.existingEmail);
+  await admin.getByText(/Dashboard access enabled/).waitFor();
+  const starterPassword = await admin
+    .getByTestId("issued-password")
+    .innerText();
+  assert(starterPassword.length >= 12 && starterPassword !== "001290");
+  await login(await browser.newPage(), "starter@example.test", starterPassword);
+  await admin.reload();
+  assert.equal(await admin.getByTestId("issued-password").count(), 0);
+  assert.equal(fixture.emailRequests(), 0);
   console.log(
-    "PASS kiosk isolation and attendance, timesheet corrections and review, employee creation, invitation retries, new and existing account login, deactivation and reactivation.",
+    "PASS kiosk and timesheet workflows, immediate generated-password login, one-time display, later activation, independent resets, email change, deactivation, and zero invitation requests.",
   );
 } finally {
   await browser?.close();
