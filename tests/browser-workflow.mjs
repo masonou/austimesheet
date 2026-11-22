@@ -280,6 +280,94 @@ try {
   await admin.getByText("Session marked Reviewed.").waitFor();
   await employee.reload();
   await employee.getByText("Reviewed", { exact: true }).waitFor();
+  await admin.getByRole("link", { name: "Reports", exact: true }).click();
+  await admin.getByLabel("Reporting period").selectOption("fortnight");
+  await admin.getByLabel("Start date").fill("2025-11-17");
+  await admin.getByLabel("Employees", { exact: true }).selectOption("some");
+  await admin
+    .getByRole("checkbox", { name: "Alex Smith", exact: true })
+    .check();
+  await admin.getByRole("button", { name: "Apply filters" }).click();
+  await admin
+    .getByRole("heading", { name: "2025-11-17 – 2025-11-30" })
+    .waitFor();
+  await admin
+    .locator(".metric.primary strong")
+    .filter({ hasText: /^6\.00$/ })
+    .waitFor();
+  await admin.locator(".report-person summary").click();
+  await admin.getByText("Dinner service", { exact: true }).waitFor();
+  const reportUrl = admin.url();
+  const fileUrl = new URL(
+    await admin
+      .getByRole("link", { name: "Export CSV", exact: true })
+      .getAttribute("href"),
+    base,
+  );
+  const detail = await admin.request.get(fileUrl.href);
+  assert.equal(detail.status(), 200);
+  assert.match(detail.headers()["cache-control"], /no-store/);
+  assert.match(
+    detail.headers()["content-disposition"],
+    /2025-11-17-to-2025-11-30\.csv/,
+  );
+  assert.match(await detail.text(), /"6.00","Reviewed","Dinner service"/);
+  const summaryUrl = new URL(
+    await admin
+      .getByRole("link", { name: "Employee summary CSV" })
+      .getAttribute("href"),
+    base,
+  );
+  assert.match(
+    await (await admin.request.get(summaryUrl.href)).text(),
+    /"6.00","1","0"/,
+  );
+  for (const url of [reportUrl, fileUrl.href, summaryUrl.href]) {
+    assert.equal((await employee.request.get(url)).status(), 404);
+    assert.equal(
+      (
+        await admin.request.get(url.replace(fixture.org, fixture.harbour))
+      ).status(),
+      404,
+    );
+  }
+  fileUrl.searchParams.set("employee", fixture.harbourEmployee);
+  assert.equal((await admin.request.get(fileUrl.href)).status(), 400);
+  assert.equal(
+    await employee.getByRole("link", { name: "Reports" }).count(),
+    0,
+  );
+  await admin.getByLabel("Employees", { exact: true }).selectOption("all");
+  await admin.getByRole("button", { name: "Apply filters" }).click();
+  await admin
+    .locator(".metric.primary strong")
+    .filter({ hasText: /^10\.00$/ })
+    .waitFor();
+  await admin
+    .getByText(
+      "1 completed session is pending review and included in these totals.",
+    )
+    .waitFor();
+  const former = admin
+    .locator(".report-person summary")
+    .filter({ hasText: "Sam Wilson (inactive)" });
+  assert.match(await former.innerText(), /Saturday\s+2\.00/);
+  assert.equal(await admin.getByText("Harbour employee").count(), 0);
+  await admin.getByLabel("Employees", { exact: true }).selectOption("some");
+  await admin
+    .getByRole("checkbox", { name: "Alex Smith", exact: true })
+    .check();
+  await admin
+    .getByRole("checkbox", { name: "Sam Wilson (inactive)", exact: true })
+    .check();
+  await admin.getByRole("button", { name: "Apply filters" }).click();
+  await admin.waitForURL(
+    (url) => url.searchParams.getAll("employee").length === 2,
+  );
+  assert.equal(
+    await admin.locator(".metric.primary strong").innerText(),
+    "10.00",
+  );
   await admin.getByRole("link", { name: "Employees", exact: true }).click();
   await admin.getByRole("button", { name: "Add Employee" }).click();
   let form = admin.getByRole("dialog");
@@ -368,7 +456,7 @@ try {
   assert.equal(await admin.getByTestId("issued-password").count(), 0);
   assert.equal(fixture.emailRequests(), 0);
   console.log(
-    "PASS kiosk and timesheet workflows, immediate generated-password login, one-time display, later activation, independent resets, email change, deactivation, and zero invitation requests.",
+    "PASS kiosk, timesheet corrections, fortnightly reports and CSV permissions, employee dashboard provisioning, password and email changes, and deactivation.",
   );
 } finally {
   await browser?.close();

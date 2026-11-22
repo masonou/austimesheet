@@ -24,6 +24,20 @@ Open [localhost:3000](http://localhost:3000). Keep the existing `NEXT_PUBLIC_SUP
 
 The weekly window runs from local Monday midnight up to the following Monday. Each session shows its full elapsed duration. Weekly totals count only the portion of completed sessions inside that week, including over midnight and daylight-saving transitions. Open sessions appear as open and accrue no displayed total until closed.
 
+## Phase 3C reporting
+
+Open **Admin → Reports** to preview completed time or download CSVs. Reporting uses the existing Supabase session, workplace membership checks, RLS and work-session tables. Deploy the app with the current environment. This phase needs no SQL migration.
+
+**This week** and **Last week** use Monday through Sunday in the workplace timezone. **Fortnight** uses any chosen start date and the following 13 days. **Custom date range** includes both dates. Select all employees, or select one or more names and choose **Apply filters**. Inactive employees with completed time appear in the breakdown. Expand a name to see recorded times, notes and review status.
+
+Each session contributes only the portion inside the period. At each local midnight, the report assigns the elapsed time to weekday, Saturday or Sunday. Timestamps retain their recorded precision, including on daylight-saving changes. Summaries round the exact accumulated duration to two decimal hours, so adding the individually rounded CSV rows may differ slightly from a summary. A session crossing two reports counts once in each report it overlaps; its hours are split between them. Open and voided sessions contribute no time. The preview flags pending completed sessions, which are included alongside reviewed sessions.
+
+**Export CSV** returns one row per session per local day. Recorded clock-in/out, allocation start/end (including UTC offsets), category and total hours make overnight shifts traceable. Sum the daily **Total hours** column. **Hours worked** is the same row duration. **Employee summary CSV** returns one row per reported employee with category totals, weekend and overall hours, and completed and pending counts. Both files carry workplace, dates, timezone and generation time. Empty files carry an explicitly labelled empty-report row if there are no data rows. Text fields are escaped for spreadsheets. Each download reads the latest records using the preview's dates and employee IDs, so corrections after preview appear in the download.
+
+**Try a fortnight:** In a test workplace using Brisbane time, add an otherwise missing shift for Friday 20 November 2026 at 22:00 through Saturday 21 November at 02:00. Open Reports, select **Fortnight**, set **16 November 2026**, select that employee, and apply. The report ends on 29 November. For this shift expect **2.00 weekday**, **2.00 Saturday**, and **4.00 total**. Expand the employee, compare both CSVs, then mark the shift Reviewed on the timesheet and refresh the report. The hours stay the same and the pending count decreases.
+
+A request covers up to 366 days, 100 explicitly selected employees (or all), a 5,000-person directory, 5,000 matching sessions and 20,000 daily allocations. Downloads are limited to 12 MiB. Oversized requests return an error so an administrator can narrow the report.
+
 ## Employee dashboard password rollout
 
 A workplace PIN is six digits and is used for kiosk attendance. A dashboard login uses an email and an independent, server-generated 24-character password. An admin sees the generated email/password pair once after provisioning or a confirmed reset. Give it to the employee privately, then choose **Done**. Closing or refreshing the page or hiding the tab also clears the display. To replace a lost password, issue a new one from the employee profile. Supabase stores the password hash. Shiftbook does not store, log or offer later retrieval of the dashboard password.

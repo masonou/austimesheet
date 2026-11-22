@@ -7,7 +7,23 @@ import { testDatabase, workplace, roleQuery } from "./kiosk-db.mjs";
 export async function browserFixture() {
   const db = await testDatabase(),
     f = await workplace(db);
-  await db.query("insert into organisations(name) values ('Harbour Pub')");
+  const harbour = (
+    await db.query(
+      "insert into organisations(name) values ('Harbour Pub') returning id",
+    )
+  ).rows[0].id;
+  const formerEmployee = randomUUID();
+  const harbourEmployee = randomUUID();
+  await db.query(
+    "insert into employees(id,organisation_id,display_name,active) values($1,$2,'Sam Wilson',false),($3,$4,'Harbour employee',true)",
+    [formerEmployee, f.org, harbourEmployee, harbour],
+  );
+  await db.query(
+    `insert into work_sessions(organisation_id,employee_id,started_at,ended_at)
+     values ($1,$2,'2025-11-28 22:00+10','2025-11-29 02:00+10'),
+            ($3,$4,'2025-11-28 10:00+10','2025-11-28 18:00+10')`,
+    [f.org, formerEmployee, harbour, harbourEmployee],
+  );
   const random = () => randomBytes(32).toString("hex");
   const secret = random(),
     publishable = random(),
@@ -277,15 +293,33 @@ export async function browserFixture() {
         );
       else if (name === "work_sessions") {
         const end = params.get("started_at")?.slice(3);
-        const start = params.get("or")?.match(/ended_at\.gt\.([^,)]+)/)?.[1];
-        rows = await roleQuery(
-          db,
-          role,
-          user?.id,
-          "select * from work_sessions where started_at<$1 and (ended_at>$2 or (ended_at is null and (voided_at is null or started_at>=$2))) order by started_at",
-          [end, start],
-          user,
-        );
+        if (params.has("ended_at")) {
+          const ids =
+            params.get("employee_id")?.slice(4, -1).split(",") ?? null;
+          rows = await roleQuery(
+            db,
+            role,
+            user?.id,
+            "select id,employee_id,started_at,ended_at,reviewed_at,voided_at,note from work_sessions where organisation_id=$1 and started_at<$2 and ended_at>$3 and voided_at is null and ($4::uuid[] is null or employee_id=any($4)) order by started_at,id",
+            [
+              params.get("organisation_id")?.slice(3),
+              end,
+              params.get("ended_at").slice(3),
+              ids,
+            ],
+            user,
+          );
+        } else {
+          const start = params.get("or")?.match(/ended_at\.gt\.([^,)]+)/)?.[1];
+          rows = await roleQuery(
+            db,
+            role,
+            user?.id,
+            "select * from work_sessions where started_at<$1 and (ended_at>$2 or (ended_at is null and (voided_at is null or started_at>=$2))) order by started_at",
+            [end, start],
+            user,
+          );
+        }
       } else
         rows = await roleQuery(
           db,
@@ -310,6 +344,8 @@ export async function browserFixture() {
     adminEmail,
     password,
     org: f.org,
+    harbour,
+    harbourEmployee,
     existingEmail,
     emailRequests: () => emailRequests,
     dropReply: () => {

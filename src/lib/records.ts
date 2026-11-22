@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { ReportInputError } from "./reports";
 import type { Staff, Session, Week } from "./timesheets";
 
 export async function readPages<T>(
@@ -7,13 +8,24 @@ export async function readPages<T>(
     from: number,
     to: number,
   ) => PromiseLike<{ data: T[] | null; count: number | null; error: unknown }>,
+  limit?: { max: number; message: string },
 ) {
   const rows: T[] = [];
+  let expectedCount: number | undefined;
   // Respect the project's API row cap, which can be smaller than our page size.
   for (;;) {
     const { data, count, error } = await read(rows.length, rows.length + 499);
     if (error || !data || count === null)
       throw new Error("Could not load timesheet records.");
+    if (limit) {
+      if (count > limit.max) throw new ReportInputError(limit.message);
+      if (
+        (expectedCount !== undefined && expectedCount !== count) ||
+        (!data.length && rows.length < count)
+      )
+        throw new Error("Records changed while loading. Refresh the report.");
+      expectedCount = count;
+    }
     rows.push(...data);
     if (!data.length || rows.length >= count) return rows;
   }

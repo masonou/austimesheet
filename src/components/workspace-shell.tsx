@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   ArrowUpRight,
   Building2,
+  ChartColumn,
   CalendarDays,
   FlaskConical,
   LogOut,
@@ -20,6 +21,7 @@ export function WorkspaceShell({
   sample = false,
   directory = false,
   kiosks = false,
+  reports = false,
 }: {
   children: React.ReactNode;
   name: string;
@@ -28,6 +30,7 @@ export function WorkspaceShell({
   sample?: boolean;
   directory?: boolean;
   kiosks?: boolean;
+  reports?: boolean;
 }) {
   return (
     <div className="workspace">
@@ -68,7 +71,9 @@ export function WorkspaceShell({
           <nav aria-label="Workspace">
             <Link
               href={base}
-              aria-current={!directory && !kiosks ? "page" : undefined}
+              aria-current={
+                !directory && !kiosks && !reports ? "page" : undefined
+              }
             >
               <CalendarDays size={18} /> Timesheets
             </Link>
@@ -86,6 +91,14 @@ export function WorkspaceShell({
                 aria-current={kiosks ? "page" : undefined}
               >
                 <Monitor size={18} /> Kiosks
+              </Link>
+            )}
+            {role === "admin" && !sample && (
+              <Link
+                href={base + "/reports"}
+                aria-current={reports ? "page" : undefined}
+              >
+                <ChartColumn size={18} /> Reports
               </Link>
             )}
           </nav>
