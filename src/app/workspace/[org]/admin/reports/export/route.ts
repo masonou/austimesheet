@@ -1,7 +1,9 @@
 import { requireWorkspace } from "@/lib/workspace";
 import { getWeek } from "@/lib/timesheets";
 import { loadReport, reportDirectory } from "@/lib/report-records";
-import { reportFilters, reportCsv, ReportInputError } from "@/lib/reports";
+import { reportFilters, ReportInputError } from "@/lib/reports";
+import { reportCsv } from "@/lib/report-export";
+import { reportWorkbook } from "@/lib/report-workbook";
 
 export const dynamic = "force-dynamic";
 export async function GET(
@@ -20,9 +22,9 @@ export async function GET(
     const kind = query.get("format") ?? "detail";
     if (
       query.getAll("format").length > 1 ||
-      (kind !== "detail" && kind !== "summary")
+      (kind !== "xlsx" && kind !== "detail" && kind !== "summary")
     )
-      throw new ReportInputError("Choose a valid CSV format.");
+      throw new ReportInputError("Choose Excel or a CSV format.");
     const filters = reportFilters(query, zone, getWeek(undefined, zone).key);
     const report = await loadReport(
       client,
@@ -30,20 +32,40 @@ export async function GET(
       filters,
       await reportDirectory(client, org),
     );
-    const csv = reportCsv(report, name, kind, new Date().toISOString());
+    const excel = kind === "xlsx";
+    const content =
+      kind === "xlsx"
+        ? await reportWorkbook(report, name, new Date())
+        : reportCsv(report, kind);
+    const person =
+      excel && filters.ids.length === 1
+        ? report.people[0].staff.display_name
+            .normalize("NFKD")
+            .replace(/\p{Mark}/gu, "")
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .slice(0, 60)
+            .replace(/^-|-$/g, "") || "employee"
+        : "";
     const filename =
       "shiftbook-timesheets-" +
       (kind === "summary" ? "summary-" : "") +
+      (person ? person + "-" : "") +
       filters.first +
       "-to-" +
       filters.last +
-      ".csv";
-    headers.set("Content-Type", "text/csv; charset=utf-8");
+      (excel ? ".xlsx" : ".csv");
+    headers.set(
+      "Content-Type",
+      excel
+        ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        : "text/csv; charset=utf-8",
+    );
     headers.set(
       "Content-Disposition",
       'attachment; filename="' + filename + '"',
     );
-    return new Response(csv, { headers });
+    return new Response(content, { headers });
   } catch (error) {
     return new Response(
       error instanceof ReportInputError

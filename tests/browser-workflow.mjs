@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
+import readExcelFile from "read-excel-file/node";
 import { chromium } from "playwright-core";
 import { browserFixture } from "./browser-fixture.mjs";
 
@@ -300,7 +301,7 @@ try {
   const reportUrl = admin.url();
   const fileUrl = new URL(
     await admin
-      .getByRole("link", { name: "Export CSV", exact: true })
+      .getByRole("link", { name: "Work sessions CSV", exact: true })
       .getAttribute("href"),
     base,
   );
@@ -320,9 +321,33 @@ try {
   );
   assert.match(
     await (await admin.request.get(summaryUrl.href)).text(),
-    /"6.00","1","0"/,
+    /"6.00","0.00","1","0"/,
   );
-  for (const url of [reportUrl, fileUrl.href, summaryUrl.href]) {
+  const excelLink = admin.getByRole("link", {
+    name: "Export Excel",
+    exact: true,
+  });
+  const excelUrl = new URL(await excelLink.getAttribute("href"), base);
+  const excel = await admin.request.get(excelUrl.href);
+  assert.equal(excel.status(), 200);
+  assert.match(excel.headers()["cache-control"], /no-store/);
+  assert.match(excel.headers()["content-type"], /spreadsheetml.sheet/);
+  assert.match(
+    excel.headers()["content-disposition"],
+    /alex-smith-2025-11-17-to-2025-11-30\.xlsx/,
+  );
+  const individual = await readExcelFile(await excel.body());
+  assert.deepEqual(
+    individual.map((sheet) => sheet.sheet),
+    ["Alex Smith"],
+  );
+  assert(
+    individual[0].data.some(
+      (row) =>
+        row[6] === 6 && row[7] === "Reviewed" && row[8] === "Dinner service",
+    ),
+  );
+  for (const url of [reportUrl, fileUrl.href, summaryUrl.href, excelUrl.href]) {
     assert.equal((await employee.request.get(url)).status(), 404);
     assert.equal(
       (
@@ -331,6 +356,8 @@ try {
       404,
     );
   }
+  excelUrl.searchParams.append("employee", fixture.harbourEmployee);
+  assert.equal((await admin.request.get(excelUrl.href)).status(), 400);
   fileUrl.searchParams.set("employee", fixture.harbourEmployee);
   assert.equal((await admin.request.get(fileUrl.href)).status(), 400);
   assert.equal(
@@ -367,6 +394,25 @@ try {
   assert.equal(
     await admin.locator(".metric.primary strong").innerText(),
     "10.00",
+  );
+  const team = await admin.request.get(
+    new URL(await excelLink.getAttribute("href"), base).href,
+  );
+  assert.equal(team.status(), 200);
+  const [overview, ...teamSheets] = await readExcelFile(await team.body());
+  assert.equal(overview.sheet, "Overview");
+  assert.deepEqual(teamSheets.map((s) => s.sheet).sort(), [
+    "Alex Smith",
+    "Sam Wilson",
+  ]);
+  assert.deepEqual(overview.data.at(-1), ["Overall total", 8, 2, 0, 10]);
+  assert(
+    teamSheets
+      .find((s) => s.sheet === "Sam Wilson")
+      .data.some(
+        (row) =>
+          row[3] === 2 && row[4] === 2 && row[6] === 4 && row[7] === "Pending",
+      ),
   );
   await admin.getByRole("link", { name: "Employees", exact: true }).click();
   await admin.getByRole("button", { name: "Add Employee" }).click();
@@ -456,7 +502,7 @@ try {
   assert.equal(await admin.getByTestId("issued-password").count(), 0);
   assert.equal(fixture.emailRequests(), 0);
   console.log(
-    "PASS kiosk, timesheet corrections, fortnightly reports and CSV permissions, employee dashboard provisioning, password and email changes, and deactivation.",
+    "PASS kiosk, timesheet corrections, individual and team Excel workbooks, CSV downloads and report permissions, employee dashboard provisioning, password and email changes, and deactivation.",
   );
 } finally {
   await browser?.close();

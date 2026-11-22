@@ -129,9 +129,12 @@ type Person = {
   pending: number;
 };
 
+export const nanosPerHundredth = BigInt(36_000_000_000);
+export function roundedHundredths(ns: bigint) {
+  return (ns + nanosPerHundredth / BigInt(2)) / nanosPerHundredth;
+}
 export function decimalHours(ns: bigint) {
-  const perHundredth = BigInt(36_000_000_000);
-  const rounded = (ns + perHundredth / BigInt(2)) / perHundredth;
+  const rounded = roundedHundredths(ns);
   return (
     String(rounded / BigInt(100)) +
     "." +
@@ -242,132 +245,3 @@ export function makeReport(
   };
 }
 export type Report = ReturnType<typeof makeReport>;
-
-function csvCell(value: string) {
-  // Spreadsheet apps may ignore leading whitespace, BOMs or control characters.
-  if (
-    /^[\s\u0000-\u001f]*[=+@\-＝＋－＠]/u.test(value) ||
-    /^[\t\r\n]/.test(value)
-  )
-    value = "'" + value;
-  return '"' + value.replaceAll('"', '""') + '"';
-}
-export function reportCsv(
-  report: Report,
-  business: string,
-  kind: "detail" | "summary",
-  generated: string,
-) {
-  const { first, last, zone } = report.filters;
-  const meta = [
-    "Record type",
-    "Business",
-    "Period start",
-    "Period end",
-    "Timezone",
-    "Generated at (UTC)",
-    "Employee ID",
-    "Employee name",
-  ];
-  const rows: string[] = [];
-  let bytes = 3;
-  const encoder = new TextEncoder();
-  const line = (cells: string[]) => {
-    const row = cells.map(csvCell).join(",");
-    bytes += encoder.encode(row).length + 2;
-    if (bytes > 12 * 1024 * 1024)
-      throw new ReportInputError(
-        "CSV exceeds 12 MiB. Choose fewer employees or a shorter period.",
-      );
-    rows.push(row);
-  };
-  const categories = ["Weekday hours", "Saturday hours", "Sunday hours"];
-  line([
-    ...meta,
-    ...(kind === "summary"
-      ? [
-          ...categories,
-          "Weekend hours",
-          "Total hours",
-          "Completed sessions",
-          "Pending sessions",
-        ]
-      : [
-          "Session ID",
-          "Work date",
-          "Clock-in (local)",
-          "Clock-out (local)",
-          "Allocation date",
-          "Allocation start (local)",
-          "Allocation end (local)",
-          "Hours worked",
-          ...categories,
-          "Total hours",
-          "Review status",
-          "Notes",
-        ]),
-  ]);
-  for (const person of report.people) {
-    const prefix = [
-      kind === "summary" ? "Employee summary" : "Daily allocation",
-      business,
-      first,
-      last,
-      zone,
-      generated,
-      person.staff.id,
-      person.staff.display_name,
-    ];
-    if (kind === "summary") {
-      const h = person.hours;
-      line([
-        ...prefix,
-        ...[
-          h.weekday,
-          h.saturday,
-          h.sunday,
-          h.saturday + h.sunday,
-          h.total,
-        ].map(decimalHours),
-        String(person.sessions.length),
-        String(person.pending),
-      ]);
-    } else
-      for (const shift of person.sessions)
-        for (const part of shift.allocations) {
-          const h = decimalHours(part.duration);
-          line([
-            ...prefix,
-            shift.id,
-            shift.day,
-            shift.clockIn,
-            shift.clockOut,
-            part.day,
-            part.from,
-            part.to,
-            h,
-            ...["weekday", "saturday", "sunday"].map((bucket) =>
-              bucket === part.bucket ? h : "0.00",
-            ),
-            h,
-            shift.review,
-            shift.note,
-          ]);
-        }
-  }
-  if (rows.length === 1) {
-    const columns = kind === "summary" ? 7 : 14;
-    line([
-      "Empty report",
-      business,
-      first,
-      last,
-      zone,
-      generated,
-      "",
-      "",
-      ...Array<string>(columns).fill(""),
-    ]);
-  }
-  return "\ufeff" + rows.join("\r\n") + "\r\n";
-}

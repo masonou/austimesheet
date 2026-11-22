@@ -34,8 +34,11 @@ export function ReportPreview({
           <small>{filters.zone} · Decimal hours</small>
         </div>
         <div className="account">
-          <a className="button" href={download + "&format=detail"}>
-            Export CSV
+          <a className="button" href={download + "&format=xlsx"}>
+            Export Excel
+          </a>
+          <a className="quiet-link" href={download + "&format=detail"}>
+            Work sessions CSV
           </a>
           <a className="quiet-link" href={download + "&format=summary"}>
             Employee summary CSV
