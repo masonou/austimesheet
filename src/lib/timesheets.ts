@@ -84,13 +84,11 @@ export function elapsed(
 }
 
 export function hours(ms: number) {
-  if (ms > 0 && ms < 1000) return "<1s";
-  const seconds = Math.round(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
+  const minutes = Math.round(ms / 60000);
+  if (!minutes) return "0m";
   return [
     Math.floor(minutes / 60) + "h",
     minutes % 60 ? (minutes % 60) + "m" : "",
-    seconds % 60 ? (seconds % 60) + "s" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -100,7 +98,7 @@ export function shiftField(instant: string, zone: string) {
   return Temporal.Instant.from(instant)
     .toZonedDateTimeISO(zone)
     .toPlainDateTime()
-    .toString({ smallestUnit: "second" });
+    .toString({ smallestUnit: "minute" });
 }
 
 // During a spring-forward gap there is no such instant. A repeated autumn time

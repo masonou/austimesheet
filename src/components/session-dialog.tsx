@@ -32,7 +32,7 @@ function stamp(value: string | null, zone: string) {
   if (!value) return "Open";
   const t = Temporal.Instant.from(value).toZonedDateTimeISO(zone);
   return (
-    t.toPlainDateTime().toString().replace("T", " ") + " (" + t.offset + ")"
+    t.toPlainDateTime().toString({ smallestUnit: "minute" }).replace("T", " ") + " (" + t.offset + ")"
   );
 }
 
@@ -76,7 +76,6 @@ function TimeInput({
         {label}
         <input
           type="datetime-local"
-          step="any"
           required={required}
           value={field.value}
           onChange={(e) => field.change(e.target.value)}

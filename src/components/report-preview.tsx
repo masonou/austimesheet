@@ -109,8 +109,8 @@ export function ReportPreview({
                     {p.sessions.map((s) => (
                       <tr key={s.id}>
                         <td>{s.day}</td>
-                        <td>{s.clockIn.replace("T", " ")}</td>
-                        <td>{s.clockOut.replace("T", " ")}</td>
+                        <td>{s.clockIn.slice(0, 16).replace("T", " ")}</td>
+                        <td>{s.clockOut.slice(0, 16).replace("T", " ")}</td>
                         <td>{decimalHours(s.hours.total)}</td>
                         <td>
                           <span

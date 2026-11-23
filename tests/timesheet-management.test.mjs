@@ -196,6 +196,12 @@ test("workplace time entry preserves microseconds, rejects gaps and distinguishe
     shiftChoices(shiftField(source, zone), zone, source)[1].instant,
     source,
   );
+  const precise = "2025-04-06T02:30:47.123456+10:00";
+  assert.equal(shiftField(precise, zone), "2025-04-06T02:30");
+  assert.equal(shiftChoices(shiftField(precise, zone), zone, precise)[1].instant, precise);
+  assert.equal(hours(7000), "0m");
+  assert.equal(hours(45000), "0h 1m");
+  assert.equal(hours(3599000), "1h");
   const overnight = {
     started_at: "2025-10-04T22:00+10:00",
     ended_at: "2025-10-05T06:00+11:00",
