@@ -315,7 +315,7 @@ export async function browserFixture() {
             db,
             role,
             user?.id,
-            "select * from work_sessions where started_at<$1 and (ended_at>$2 or (ended_at is null and (voided_at is null or started_at>=$2))) order by started_at",
+            "select * from work_sessions where started_at<$1 and (ended_at>$2 or (ended_at is null and (voided_at is null or started_at>=$2))) order by started_at desc, id",
             [end, start],
             user,
           );

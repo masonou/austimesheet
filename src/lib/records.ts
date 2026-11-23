@@ -61,7 +61,7 @@ export async function readRecords(
         `ended_at.gt.${week.start},and(ended_at.is.null,or(voided_at.is.null,started_at.gte.${week.start}))`,
       );
     if (userId) q = q.eq("employee_id", staff[0].id);
-    return q.order("started_at").order("id").range(from, to);
+    return q.order("started_at", { ascending: false }).order("id").range(from, to);
   });
   return { staff, sessions };
 }
