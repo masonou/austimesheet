@@ -9,12 +9,16 @@ import { Input } from "./ui/input";
 export function LoginForm() {
   const [error, submit, pending] = useActionState(signIn, "");
   const [visible, setVisible] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   return (
     <form action={submit} className="login-form">
       <label htmlFor="email">Work email</label>
       <Input
         id="email"
         name="email"
+        value={email}
+        onChange={(event) => setEmail(event.target.value)}
         type="email"
         autoComplete="username"
         placeholder="you@workplace.com.au"
@@ -25,6 +29,8 @@ export function LoginForm() {
         <Input
           id="password"
           name="password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
           type={visible ? "text" : "password"}
           autoComplete="current-password"
           placeholder="Enter your password"

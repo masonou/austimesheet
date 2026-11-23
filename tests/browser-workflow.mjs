@@ -90,7 +90,27 @@ try {
   let admin = await tablet.newPage();
   const employee = await browser.newPage();
   let kiosk;
-  await login(admin, fixture.adminEmail);
+  await admin.goto(base);
+  await admin.getByLabel("Work email").fill(fixture.adminEmail);
+  await admin
+    .getByLabel("Password", { exact: true })
+    .fill("incorrect password");
+  await admin.getByRole("button", { name: "Sign in", exact: true }).click();
+  await admin
+    .getByRole("alert")
+    .getByText("Sign-in failed. Check your details and try again.")
+    .waitFor();
+  assert.equal(
+    await admin.getByLabel("Work email").inputValue(),
+    fixture.adminEmail,
+  );
+  assert.equal(
+    await admin.getByLabel("Password", { exact: true }).inputValue(),
+    "incorrect password",
+  );
+  await admin.getByLabel("Password", { exact: true }).fill(fixture.password);
+  await admin.getByRole("button", { name: "Sign in", exact: true }).click();
+  await admin.waitForURL("**/workspace/**");
   await login(employee, fixture.email);
   assert.equal(await employee.getByRole("link", { name: /kiosk/i }).count(), 0);
   await admin.getByRole("link", { name: "Employees", exact: true }).click();
