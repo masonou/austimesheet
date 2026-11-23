@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Temporal } from "@js-temporal/polyfill";
+import * as Popover from "@radix-ui/react-popover";
+import { DayPicker } from "react-day-picker";
+import { CalendarDays } from "lucide-react";
 import { Button } from "./ui/button";
 import {
   elapsed,
@@ -68,22 +71,91 @@ function TimeInput({
   label,
   field,
   required,
+  calendar,
 }: {
   label: string;
   field: ReturnType<typeof useShiftField>;
   required: boolean;
+  calendar: boolean;
 }) {
+  const [desktop, setDesktop] = useState(false);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 701px)");
+    const update = () => setDesktop(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  const [day, time] = field.value.split("T");
+  const parts = day?.split("-").map(Number);
+  const selected =
+    parts?.length === 3 && parts.every(Number.isFinite)
+      ? new Date(parts[0], parts[1] - 1, parts[2])
+      : undefined;
   return (
     <div>
-      <label>
-        {label}
-        <input
-          type="datetime-local"
-          required={required}
-          value={field.value}
-          onChange={(e) => field.change(e.target.value)}
-        />
-      </label>
+      {calendar && desktop && selected ? (
+        <div className="shift-date-time">
+          <span>{label}</span>
+          <Popover.Root open={open} onOpenChange={setOpen}>
+            <Popover.Trigger asChild>
+              <button
+                type="button"
+                className="shift-date-button"
+                aria-label={label + " date"}
+              >
+                {new Intl.DateTimeFormat("en-AU", {
+                  weekday: "short",
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                }).format(selected).replace(",", "")}
+                <CalendarDays size={18} />
+              </button>
+            </Popover.Trigger>
+            <Popover.Content
+              className="shift-calendar"
+              sideOffset={4}
+              align="start"
+            >
+              <DayPicker
+                mode="single"
+                selected={selected}
+                defaultMonth={selected}
+                autoFocus
+                onSelect={(date) => {
+                  if (!date) return;
+                  const value = [
+                    date.getFullYear(),
+                    String(date.getMonth() + 1).padStart(2, "0"),
+                    String(date.getDate()).padStart(2, "0"),
+                  ].join("-");
+                  field.change(value + "T" + (time || "00:00"));
+                  setOpen(false);
+                }}
+              />
+            </Popover.Content>
+          </Popover.Root>
+          <input
+            type="time"
+            aria-label={label + " time"}
+            required={required}
+            value={time || ""}
+            onChange={(e) => field.change(day + "T" + e.target.value)}
+          />
+        </div>
+      ) : (
+        <label>
+          {label}
+          <input
+            type="datetime-local"
+            required={required}
+            value={field.value}
+            onChange={(e) => field.change(e.target.value)}
+          />
+        </label>
+      )}
       {field.choices.length === 2 && (
         <label>
           {label} UTC offset
@@ -390,15 +462,20 @@ export function SessionDialog({
                   </select>
                 </label>
               )}
-              <TimeInput field={start} label="Clock in" required />
+              <TimeInput
+                field={start}
+                label="Clock in"
+                required
+                calendar={!session}
+              />
               <TimeInput
                 field={finish}
                 label="Clock out"
+                calendar={!session}
                 required={!session || !!session.ended_at}
               />
               <strong>
-                Total hours ·{" "}
-                {duration > 0 ? hours(duration) : "—"}
+                Total hours · {duration > 0 ? hours(duration) : "—"}
               </strong>
               <label>
                 Note

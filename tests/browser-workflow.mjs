@@ -259,8 +259,18 @@ try {
   await modal
     .getByLabel("Employee", { exact: true })
     .selectOption({ label: "Alex Smith" });
-  await modal.getByLabel("Clock in", { exact: true }).fill("2025-11-19T17:00");
-  await modal.getByLabel("Clock out", { exact: true }).fill("2025-11-19T22:30");
+  for (const label of ["Clock in", "Clock out"]) {
+    await modal.getByRole("button", { name: label + " date" }).click();
+    await admin.keyboard.press("Escape");
+    assert.equal(await modal.getByRole("grid").count(), 0);
+    await modal.getByRole("button", { name: label + " date" }).click();
+    await modal
+      .getByRole("gridcell", { name: /19/ })
+      .getByRole("button")
+      .click();
+  }
+  await modal.getByLabel("Clock in time").fill("17:00");
+  await modal.getByLabel("Clock out time").fill("22:30");
   await modal.getByRole("button", { name: "Add session" }).click();
   await admin.getByText("Session added.", { exact: true }).waitFor();
   const row = admin.getByRole("button", { name: /Open session for Alex/ });
@@ -432,6 +442,20 @@ try {
           row[3] === 2 && row[4] === 2 && row[6] === 4 && row[7] === "Pending",
       ),
   );
+  await admin.setViewportSize({ width: 390, height: 844 });
+  await admin.goto(
+    base + "/workspace/" + fixture.org + "/admin?week=2025-11-17",
+  );
+  await admin.getByRole("button", { name: "Add session" }).click();
+  await modal
+    .getByLabel("Employee", { exact: true })
+    .selectOption({ label: "Alex Smith" });
+  await modal.getByLabel("Clock in", { exact: true }).fill("2025-11-19T10:00");
+  await modal.getByLabel("Clock out", { exact: true }).fill("2025-11-19T11:00");
+  await modal.getByRole("button", { name: "Add session" }).click();
+  await admin.getByText("Session added.").waitFor();
+  await admin.getByText("Wed, 19 Nov").first().waitFor();
+  await admin.setViewportSize({ width: 1280, height: 720 });
   await admin.getByRole("link", { name: "Employees", exact: true }).click();
   await admin.getByRole("button", { name: "Add Employee" }).click();
   let form = admin.getByRole("dialog");

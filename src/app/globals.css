@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "react-day-picker/style.css";
 
 .profile-panel {
   max-width: 44rem;
@@ -999,4 +1000,37 @@ tbody tr:last-child td {
   .report-heading .account {
     display: flex;
   }
+}
+
+.shift-date-time {
+  display: grid;
+  gap: 0.45rem;
+}
+.shift-date-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: white;
+  color: inherit;
+  text-align: left;
+}
+.shift-calendar {
+  z-index: 10;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: white;
+  box-shadow: 0 8px 24px #172e2826;
+}
+.shift-calendar .rdp-root {
+  --rdp-accent-color: #1c4539;
+  --rdp-accent-background-color: #e8eee6;
+  --rdp-day-width: 36px;
+  --rdp-day-height: 36px;
+  --rdp-day_button-width: 34px;
+  --rdp-day_button-height: 34px;
 }
