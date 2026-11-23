@@ -355,7 +355,6 @@ export function SessionDialog({
                       {h.after_state?.note || "—"}
                     </p>
                   )}
-                  <small>Administrator {h.changed_by}</small>
                 </article>
               ))
             )}
