@@ -32,7 +32,10 @@ function stamp(value: string | null, zone: string) {
   if (!value) return "Open";
   const t = Temporal.Instant.from(value).toZonedDateTimeISO(zone);
   return (
-    t.toPlainDateTime().toString({ smallestUnit: "minute" }).replace("T", " ") + " (" + t.offset + ")"
+    t.toPlainDateTime().toString({ smallestUnit: "minute" }).replace("T", " ") +
+    " (" +
+    t.offset +
+    ")"
   );
 }
 
@@ -167,10 +170,6 @@ export function SessionDialog({
     from && to
       ? elapsed({ started_at: from, ended_at: to, voided_at: null })
       : 0;
-  const timeChanged =
-    !session ||
-    from !== session.started_at ||
-    (to ?? null) !== session.ended_at;
   const person = staff.find((p) => p.id === employee)?.display_name;
   async function submit(operation: SessionChange["operation"]) {
     if (busy) return;
@@ -192,7 +191,7 @@ export function SessionDialog({
         start: from,
         finish: to,
         note: note || null,
-        reason,
+        reason: operation === "void" ? reason : undefined,
       });
       if (result.error) {
         setError(result.error);
@@ -423,17 +422,11 @@ export function SessionDialog({
               and change history will remain available.
             </p>
           )}
-          {(timeChanged || mode === "void") && (
+          {mode === "void" && (
             <label>
-              Reason for{" "}
-              {mode === "void"
-                ? "voiding"
-                : session
-                  ? "correction"
-                  : "manual entry"}
+              Note
               <textarea
                 rows={2}
-                required
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
               />

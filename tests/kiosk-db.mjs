@@ -53,6 +53,12 @@ export async function applyUpgrade(db, { beforePinLogin } = {}) {
       "utf8",
     ),
   );
+  await db.exec(
+    await readFile(
+      new URL("../supabase/migrations/20261124000100_optional_manual_session_reason.sql", import.meta.url),
+      "utf8",
+    ),
+  );
 }
 async function applyProfiles(db) {
   await db.exec(

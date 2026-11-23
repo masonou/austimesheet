@@ -63,7 +63,7 @@ async function session(f, id) {
 test("manual creation, review, reopen, corrections and void are atomic and visible to the employee", async () => {
   const f = await workplace(db),
     id = randomUUID();
-  await change(f, id, "create", null);
+  await change(f, id, "create", null, { reason: "" });
   await assert.rejects(change(f, id, "create", null));
   assert.equal((await session(f, id)).created_by, f.admin);
   assert.equal(hours(elapsed(await session(f, id))), "5h 30m");
@@ -74,13 +74,9 @@ test("manual creation, review, reopen, corrections and void are atomic and visib
   await assert.rejects(change(f, id, "edit", 1), /Session changed/);
   assert.equal((await session(f, id)).reviewed_at, null);
   const extended = "2025-11-19T23:00:00.123456+10:00";
-  await assert.rejects(
-    change(f, id, "edit", 3, { finish: extended, reason: " \n " }),
-    /reason/,
-  );
   await change(f, id, "edit", 3, {
     finish: extended,
-    reason: "Confirmed close time",
+    reason: "",
   });
   await change(f, id, "edit", 4, {
     finish: extended,
@@ -95,15 +91,16 @@ test("manual creation, review, reopen, corrections and void are atomic and visib
   );
   assert(audit.every((x) => x.changed_by === f.admin && x.changed_at));
   assert.equal(audit[0].before_state, null);
+  assert.equal(audit[0].reason, "Manually created");
   assert.equal(audit[3].before_state.ended_at, audit[0].after_state.ended_at);
   assert.match(audit[3].before_state.started_at, /123456/);
-  assert.equal(audit[3].reason, "Confirmed close time");
+  assert.equal(audit[3].reason, "Session edited");
   assert.equal(audit[4].before_state.note, "Dinner");
   assert.equal(audit[4].after_state.note, "Late close");
-  await assert.rejects(change(f, id, "void", 5, { reason: "" }), /reason/);
-  await change(f, id, "void", 5, { reason: "Duplicate paper record" });
+  await change(f, id, "void", 5, { reason: "" });
   assert.equal(elapsed(await session(f, id)), 0);
   assert.equal((await history(f, id)).at(-1).event, "void");
+  assert.equal((await history(f, id)).at(-1).reason, "Session voided");
   await change(f, randomUUID(), "create", null);
 });
 

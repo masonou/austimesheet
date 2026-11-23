@@ -261,7 +261,6 @@ try {
     .selectOption({ label: "Alex Smith" });
   await modal.getByLabel("Clock in", { exact: true }).fill("2025-11-19T17:00");
   await modal.getByLabel("Clock out", { exact: true }).fill("2025-11-19T22:30");
-  await modal.getByLabel("Reason for manual entry").fill("Missed clock-in");
   await modal.getByRole("button", { name: "Add session" }).click();
   await admin.getByText("Session added.", { exact: true }).waitFor();
   const row = admin.getByRole("button", { name: /Open session for Alex/ });
@@ -272,7 +271,6 @@ try {
   await modal.getByRole("button", { name: "Reopen for correction" }).click();
   await modal.getByText("Session reopened for correction.").waitFor();
   await modal.getByLabel("Clock out", { exact: true }).fill("2025-11-19T23:00");
-  await modal.getByLabel("Reason for correction").fill("Confirmed close time");
   await modal.getByLabel("Note", { exact: true }).fill("Dinner service");
   await modal.getByRole("button", { name: "Save changes" }).click();
   await admin.getByText("Session updated.").waitFor();
@@ -296,7 +294,7 @@ try {
   );
   await row.click();
   await modal.getByText("Change history").click();
-  await modal.getByText("Confirmed close time").waitFor();
+  await modal.getByText("Session edited", { exact: true }).waitFor();
   await modal.getByRole("button", { name: "Mark Reviewed" }).click();
   await admin.getByText("Session marked Reviewed.").waitFor();
   await employee.reload();
