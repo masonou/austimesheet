@@ -398,12 +398,7 @@ export function SessionDialog({
               />
               <strong>
                 Total hours ·{" "}
-                {duration > 0
-                  ? hours(duration) +
-                    " (" +
-                    Number((duration / 3600000).toFixed(4)) +
-                    " decimal hours)"
-                  : "—"}
+                {duration > 0 ? hours(duration) : "—"}
               </strong>
               <label>
                 Note
