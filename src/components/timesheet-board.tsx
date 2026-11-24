@@ -4,6 +4,7 @@ import { useState } from "react";
 import { SessionDialog, sessionStatus } from "./session-dialog";
 import Link from "next/link";
 import { AddEmployee } from "./add-employee";
+import { EmployeePicker } from "./employee-picker";
 import {
   CalendarDays,
   CalendarRange,
@@ -14,6 +15,7 @@ import {
   Hourglass,
 } from "lucide-react";
 import type { Role } from "@/lib/workspace";
+import { searchEmployees } from "@/lib/employee-search";
 import {
   dayLabel,
   elapsed,
@@ -25,6 +27,8 @@ import {
 } from "@/lib/timesheets";
 
 export function StaffList({ staff, org }: { staff: Staff[]; org?: string }) {
+  const [query, setQuery] = useState("");
+  const matches = searchEmployees(staff, query);
   return (
     <>
       <p className="eyebrow">
@@ -35,10 +39,25 @@ export function StaffList({ staff, org }: { staff: Staff[]; org?: string }) {
       <section className="panel">
         <div className="section-head">
           <h2>Staff directory</h2>
-          <span>{staff.length} employees</span>
+          <span>
+            {matches.length !== staff.length && `${matches.length} of `}
+            {staff.length} employees
+          </span>
           {org && <AddEmployee org={org} />}
         </div>
-        {staff.map((person) => (
+        {!!staff.length && (
+          <div className="directory-search">
+            <input
+              type="search"
+              className="employee-search"
+              aria-label="Search employees"
+              placeholder="Search employees"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
+        )}
+        {matches.map((person) => (
           <div className="directory-row" key={person.id}>
             {org ? (
               <Link
@@ -59,9 +78,43 @@ export function StaffList({ staff, org }: { staff: Staff[]; org?: string }) {
             </span>
           </div>
         ))}
-        {!staff.length && <p className="empty">No employees yet.</p>}
+        {!matches.length && (
+          <p className="empty" role="status">
+            {staff.length
+              ? "No employees match your search."
+              : "No employees yet."}
+          </p>
+        )}
       </section>
     </>
+  );
+}
+
+function TimesheetEmployeeFilter({
+  base,
+  week,
+  staff,
+  selected,
+}: {
+  base: string;
+  week: string;
+  staff: Staff[];
+  selected: string;
+}) {
+  const [employee, setEmployee] = useState(selected);
+  return (
+    <form className="filter" action={base}>
+      <input type="hidden" name="week" value={week} />
+      <input type="hidden" name="employee" value={employee} />
+      <EmployeePicker
+        label="Filter by employee"
+        staff={staff}
+        value={employee}
+        onSelect={setEmployee}
+        allowAll
+      />
+      <button>Filter</button>
+    </form>
   );
 }
 
@@ -122,7 +175,7 @@ export function TimesheetBoard({
   const [notice, setNotice] = useState("");
   const admin = role === "admin";
   const selected =
-    admin && staff.some((p) => p.id === employee) ? employee : "";
+    admin && employee && staff.some((p) => p.id === employee) ? employee : "";
   const rows = selected
     ? sessions.filter((s) => s.employee_id === selected)
     : sessions;
@@ -204,7 +257,7 @@ export function TimesheetBoard({
           org={org}
           session={dialog === "new" ? null : dialog}
           staff={staff}
-          selected={selected || ""}
+          selected={selected}
           week={week.key}
           zone={zone}
           close={() => setDialog(null)}
@@ -214,7 +267,7 @@ export function TimesheetBoard({
           }}
         />
       )}
-      <section className="panel">
+      <section className="panel timesheet-panel">
         <div className="section-head">
           <div>
             <h2>Work sessions</h2>
@@ -233,23 +286,13 @@ export function TimesheetBoard({
                   Add session
                 </button>
               )}
-              <form className="filter" action={base}>
-                <input type="hidden" name="week" value={week.key} />
-                <select
-                  key={selected}
-                  name="employee"
-                  aria-label="Filter by employee"
-                  defaultValue={selected}
-                >
-                  <option value="">All employees</option>
-                  {staff.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.display_name}
-                    </option>
-                  ))}
-                </select>
-                <button>Filter</button>
-              </form>
+              <TimesheetEmployeeFilter
+                key={selected}
+                base={base}
+                week={week.key}
+                staff={staff}
+                selected={selected}
+              />
             </div>
           )}
         </div>

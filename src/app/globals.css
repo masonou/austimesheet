@@ -269,7 +269,10 @@ h2 {
 .login-form label:not(:first-child) {
   margin-top: 0.65rem;
 }
-.filter select {
+.employee-search {
+  width: 100%;
+  min-width: 0;
+  padding: 0.5rem 0.65rem;
   border: 1px solid var(--input);
   background: #fff;
   color: var(--foreground);
@@ -602,21 +605,85 @@ h2 {
 .directory-row:last-child {
   border: 0;
 }
+.directory-search {
+  padding: 0.9rem 1.35rem;
+  border-bottom: 1px solid var(--border);
+}
+.directory-search input,
+.report-choices .employee-search {
+  max-width: 22rem;
+}
+.timesheet-panel:has(.employee-picker-menu) {
+  overflow: visible;
+}
 .filter {
   gap: 0.35rem;
   font-size: 0.89rem;
+  min-width: 0;
 }
-.filter select {
-  appearance: none;
-  padding: 0.48rem 1.8rem 0.48rem 0.55rem;
-  background: white
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%23446050' viewBox='0 0 12 12'%3E%3Cpath d='m2 4 4 4 4-4'/%3E%3C/svg%3E")
-    right 0.55rem center no-repeat;
+.filter .employee-picker {
+  width: 14rem;
 }
 .filter button {
   padding: 0.48rem 0.7rem;
   background: var(--secondary);
   border-radius: 0.45rem;
+}
+.employee-picker {
+  position: relative;
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.employee-picker-field {
+  position: relative;
+}
+.employee-picker-field input {
+  padding-inline-end: 2rem;
+}
+.employee-picker-field > svg {
+  position: absolute;
+  top: 50%;
+  right: 0.65rem;
+  transform: translateY(-50%);
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+.employee-picker-menu {
+  position: absolute;
+  z-index: 2;
+  inset: calc(100% + 0.35rem) 0 auto;
+  max-height: min(15rem, 36dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--popover);
+  box-shadow: 0 0.5rem 1.25rem rgb(23 46 40 / 0.14);
+  padding: 0.25rem;
+}
+.employee-picker-menu [role="option"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.35rem;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.employee-picker-menu [role="option"]:hover,
+.employee-picker-menu [data-highlighted] {
+  background: var(--secondary);
+}
+.employee-picker-menu [role="option"] svg {
+  flex-shrink: 0;
+  color: var(--primary);
+}
+.employee-picker-menu p {
+  padding: 0.45rem 0.6rem;
+  color: var(--muted-foreground);
 }
 .table-scroll {
   overflow-x: auto;
@@ -867,7 +934,7 @@ tbody tr:last-child td {
   gap: 1rem;
   margin-top: 1rem;
 }
-.shift-form input,
+.shift-form input:not(.employee-search),
 .shift-form textarea,
 .shift-form select {
   min-width: 0;
@@ -919,6 +986,10 @@ tbody tr:last-child td {
 }
 .report-choices {
   flex-basis: 100%;
+  min-width: 0;
+  padding: 0.5rem 0 0;
+}
+.report-employee-options {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem 1rem;
@@ -926,12 +997,19 @@ tbody tr:last-child td {
   max-height: 12rem;
   overflow: auto;
 }
+.report-employee-options:empty {
+  display: none;
+}
+.report-choices p {
+  margin-top: 0.5rem;
+  color: var(--muted-foreground);
+}
 .report-choices label {
   display: flex;
   align-items: center;
   gap: 0.4rem;
 }
-.report-choices input {
+.report-choices input[type="checkbox"] {
   accent-color: var(--primary);
 }
 .report-heading {

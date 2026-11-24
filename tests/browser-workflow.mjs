@@ -114,6 +114,11 @@ try {
   await login(employee, fixture.email);
   assert.equal(await employee.getByRole("link", { name: /kiosk/i }).count(), 0);
   await admin.getByRole("link", { name: "Employees", exact: true }).click();
+  const directorySearch = admin.getByRole("searchbox", { name: "Search employees" });
+  await directorySearch.fill("missing name");
+  await admin.getByText("No employees match your search.").waitFor();
+  await directorySearch.fill("lEe");
+  assert.equal(await admin.getByRole("link", { name: "Sam Wilson" }).count(), 0);
   await admin.getByRole("link", { name: "Alex Lee" }).click();
   await admin.getByText(fixture.email).waitFor();
   await admin.getByRole("button", { name: "Edit name" }).click();
@@ -254,11 +259,33 @@ try {
   await admin.getByText(/^Revoked/).waitFor();
   const historical = "?week=2025-11-17";
   await admin.goto(base + "/workspace/" + fixture.org + "/admin" + historical);
+  const employeeFilter = admin.getByRole("combobox", { name: "Filter by employee" });
+  await employeeFilter.click();
+  await employeeFilter.pressSequentially("wils");
+  await admin.getByRole("option", { name: "Sam Wilson (archived)" }).click();
+  await admin.getByRole("button", { name: "Filter", exact: true }).click();
+  await admin.waitForURL((url) => !!url.searchParams.get("employee"));
+  assert.equal(new URL(admin.url()).searchParams.get("week"), "2025-11-17");
+  assert.equal(await employeeFilter.inputValue(), "Sam Wilson (archived)");
   await admin.getByRole("button", { name: "Add session" }).click();
   const modal = admin.getByRole("dialog");
-  await modal
-    .getByLabel("Employee", { exact: true })
-    .selectOption({ label: "Alex Smith" });
+  assert.equal(await modal.getByLabel("Employee", { exact: true }).inputValue(), "Sam Wilson (archived)");
+  await modal.getByRole("button", { name: "Close" }).click();
+  await employeeFilter.click();
+  await admin.getByRole("option", { name: "All employees" }).click();
+  await admin.getByRole("button", { name: "Filter", exact: true }).click();
+  await admin.waitForURL((url) => !url.searchParams.get("employee"));
+  await admin.getByRole("button", { name: "Add session" }).click();
+  const employeeField = modal.getByRole("combobox", { name: "Employee" });
+  await employeeField.click();
+  await modal.getByRole("option", { name: "Sam Wilson (archived)" }).waitFor();
+  await employeeField.press("Escape");
+  assert.equal(await modal.getByRole("listbox").count(), 0);
+  assert(await modal.isVisible());
+  await employeeField.fill("SMI AL");
+  await employeeField.press("ArrowDown");
+  await employeeField.press("Enter");
+  assert.equal(await employeeField.inputValue(), "Alex Smith");
   for (const label of ["Clock in", "Clock out"]) {
     await modal.getByRole("button", { name: label + " date" }).click();
     await admin.keyboard.press("Escape");
@@ -313,6 +340,9 @@ try {
   await admin.getByLabel("Reporting period").selectOption("fortnight");
   await admin.getByLabel("Start date").fill("2025-11-17");
   await admin.getByLabel("Employees", { exact: true }).selectOption("some");
+  const reportEmployeeSearch = admin.getByRole("searchbox", { name: "Search employees" });
+  await reportEmployeeSearch.fill("smi");
+  assert.equal(await admin.getByRole("checkbox", { name: /Sam Wilson/ }).count(), 0);
   await admin
     .getByRole("checkbox", { name: "Alex Smith", exact: true })
     .check();
@@ -409,9 +439,11 @@ try {
   assert.match(await former.innerText(), /Saturday\s+2\.00/);
   assert.equal(await admin.getByText("Harbour employee").count(), 0);
   await admin.getByLabel("Employees", { exact: true }).selectOption("some");
+  await reportEmployeeSearch.fill("alex");
   await admin
     .getByRole("checkbox", { name: "Alex Smith", exact: true })
     .check();
+  await reportEmployeeSearch.fill("wilson");
   await admin
     .getByRole("checkbox", { name: "Sam Wilson (inactive)", exact: true })
     .check();
@@ -447,9 +479,8 @@ try {
     base + "/workspace/" + fixture.org + "/admin?week=2025-11-17",
   );
   await admin.getByRole("button", { name: "Add session" }).click();
-  await modal
-    .getByLabel("Employee", { exact: true })
-    .selectOption({ label: "Alex Smith" });
+  await employeeField.fill("alex");
+  await modal.getByRole("option", { name: "Alex Smith" }).click();
   await modal.getByLabel("Clock in", { exact: true }).fill("2025-11-19T10:00");
   await modal.getByLabel("Clock out", { exact: true }).fill("2025-11-19T11:00");
   await modal.getByRole("button", { name: "Add session" }).click();

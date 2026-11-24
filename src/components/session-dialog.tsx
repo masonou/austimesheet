@@ -6,6 +6,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import * as Popover from "@radix-ui/react-popover";
 import { DayPicker } from "react-day-picker";
 import { CalendarDays } from "lucide-react";
+import { EmployeePicker } from "./employee-picker";
 import { Button } from "./ui/button";
 import {
   elapsed,
@@ -245,6 +246,10 @@ export function SessionDialog({
   const person = staff.find((p) => p.id === employee)?.display_name;
   async function submit(operation: SessionChange["operation"]) {
     if (busy) return;
+    if (operation === "create" && !employee) {
+      setError("Select an employee from the list.");
+      return;
+    }
     if (
       (operation === "create" || operation === "edit") &&
       (!from || (finish.value && !to) || (to && duration <= 0))
@@ -444,23 +449,14 @@ export function SessionDialog({
           {mode === "edit" && (
             <>
               {!session && (
-                <label>
-                  Employee
-                  <select
-                    required
-                    aria-label="Employee"
-                    value={employee}
-                    onChange={(e) => setEmployee(e.target.value)}
-                  >
-                    <option value="">Select employee</option>
-                    {staff.map((p) => (
-                      <option value={p.id} key={p.id}>
-                        {p.display_name}
-                        {p.active ? "" : " (archived)"}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <EmployeePicker
+                  label="Employee"
+                  staff={staff}
+                  value={employee}
+                  onSelect={setEmployee}
+                  disabled={busy}
+                  showLabel
+                />
               )}
               <TimeInput
                 field={start}

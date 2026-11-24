@@ -1,6 +1,7 @@
 "use client";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { searchEmployees } from "@/lib/employee-search";
 import type { ReportPeriod } from "@/lib/reports";
 import type { Staff } from "@/lib/timesheets";
 import { Button } from "./ui/button";
@@ -30,10 +31,11 @@ export function ReportFilters({
   const [pending, transition] = useTransition(),
     router = useRouter();
   const [edited, setEdited] = useState(false);
+  const [employeeQuery, setEmployeeQuery] = useState("");
+  const matches = searchEmployees(staff, employeeQuery);
   return (
     <>
       <form
-        onChange={() => setEdited(true)}
         className="panel report-filters"
         onSubmit={(event) => {
           event.preventDefault();
@@ -57,7 +59,10 @@ export function ReportFilters({
           <select
             aria-label="Reporting period"
             value={mode}
-            onChange={(e) => setMode(e.target.value as ReportPeriod)}
+            onChange={(e) => {
+              setMode(e.target.value as ReportPeriod);
+              setEdited(true);
+            }}
           >
             <option value="this-week">This week</option>
             <option value="last-week">Last week</option>
@@ -68,13 +73,25 @@ export function ReportFilters({
         {(mode === "fortnight" || mode === "custom") && (
           <label>
             Start date
-            <input type="date" name="start" defaultValue={first} required />
+            <input
+              type="date"
+              name="start"
+              defaultValue={first}
+              required
+              onChange={() => setEdited(true)}
+            />
           </label>
         )}
         {mode === "custom" && (
           <label>
             End date
-            <input type="date" name="end" defaultValue={last} required />
+            <input
+              type="date"
+              name="end"
+              defaultValue={last}
+              required
+              onChange={() => setEdited(true)}
+            />
           </label>
         )}
         <label>
@@ -84,7 +101,9 @@ export function ReportFilters({
             value={some ? "some" : "all"}
             onChange={(e) => {
               setSome(e.target.value === "some");
+              setEmployeeQuery("");
               setError("");
+              setEdited(true);
             }}
           >
             <option value="all">All employees</option>
@@ -93,25 +112,50 @@ export function ReportFilters({
         </label>
         {some && (
           <fieldset className="report-choices">
-            <legend>Select employees</legend>
-            {staff.map((p) => (
-              <label key={p.id}>
-                <input
-                  type="checkbox"
-                  checked={selected.includes(p.id)}
-                  onChange={(e) => {
-                    setSelected(
-                      e.target.checked
-                        ? [...selected, p.id]
-                        : selected.filter((id) => id !== p.id),
-                    );
-                    setError("");
-                  }}
-                />
-                {p.display_name}
-                {!p.active && " (inactive)"}
-              </label>
-            ))}
+            <legend>
+              Select employees
+              {selected.length > 0 && ` · ${selected.length} selected`}
+            </legend>
+            <input
+              type="search"
+              className="employee-search"
+              aria-label="Search employees"
+              placeholder="Search employees"
+              value={employeeQuery}
+              onChange={(event) => setEmployeeQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.nativeEvent.isComposing)
+                  event.preventDefault();
+              }}
+            />
+            <div className="report-employee-options">
+              {matches.map((p) => (
+                <label key={p.id}>
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(p.id)}
+                    onChange={(e) => {
+                      setSelected(
+                        e.target.checked
+                          ? [...selected, p.id]
+                          : selected.filter((id) => id !== p.id),
+                      );
+                      setError("");
+                      setEdited(true);
+                    }}
+                  />
+                  {p.display_name}
+                  {!p.active && " (inactive)"}
+                </label>
+              ))}
+            </div>
+            {!matches.length && (
+              <p role="status">
+                {staff.length
+                  ? "No employees match your search."
+                  : "No employees yet."}
+              </p>
+            )}
           </fieldset>
         )}
         <Button disabled={pending}>
