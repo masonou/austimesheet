@@ -37,7 +37,7 @@ export async function readRecords(
   week: Week,
   userId?: string,
 ) {
-  const staff = await readPages<Staff>((from, to) => {
+  const staffRequest = readPages<Staff>((from, to) => {
     let q = client
       .from("employees")
       .select("id, display_name, active", { count: "exact" })
@@ -45,8 +45,7 @@ export async function readRecords(
     if (userId) q = q.eq("user_id", userId).eq("active", true);
     return q.order("display_name").order("id").range(from, to);
   });
-  if (userId && !staff.length) return { staff, sessions: [] };
-  const sessions = await readPages<Session>((from, to) => {
+  const readSessions = (employeeId?: string) => readPages<Session>((from, to) => {
     let q = client
       .from("work_sessions")
       .select(
@@ -60,8 +59,15 @@ export async function readRecords(
       .or(
         `ended_at.gt.${week.start},and(ended_at.is.null,or(voided_at.is.null,started_at.gte.${week.start}))`,
       );
-    if (userId) q = q.eq("employee_id", staff[0].id);
+    if (employeeId) q = q.eq("employee_id", employeeId);
     return q.order("started_at", { ascending: false }).order("id").range(from, to);
   });
+  if (!userId) {
+    const [staff, sessions] = await Promise.all([staffRequest, readSessions()]);
+    return { staff, sessions };
+  }
+  const staff = await staffRequest;
+  if (!staff.length) return { staff, sessions: [] };
+  const sessions = await readSessions(staff[0].id);
   return { staff, sessions };
 }
