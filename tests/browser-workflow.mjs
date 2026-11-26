@@ -236,6 +236,23 @@ try {
   await kiosk.getByRole("heading", { name: "Alex · Clocked IN" }).waitFor();
   await employee.reload();
   await employee.getByText("Open session", { exact: true }).waitFor();
+  const openSessionPage = await tablet.newPage();
+  await openSessionPage.goto(base + "/workspace/" + fixture.org + "/admin");
+  await openSessionPage.getByRole("button", { name: /Open session for Alex/ }).click();
+  const openSessionModal = openSessionPage.getByRole("dialog");
+  await openSessionModal.getByRole("button", { name: "Edit session", exact: true }).click();
+  await openSessionModal.getByRole("button", { name: "Clock in date" }).waitFor();
+  assert.equal(await openSessionModal.getByLabel("Clock out time").inputValue(), "");
+  await openSessionModal.getByRole("button", { name: "Clock out date" }).click();
+  await openSessionModal.getByRole("grid").waitFor();
+  await openSessionPage.keyboard.press("Escape");
+  await openSessionModal.getByLabel("Clock out time").fill("23:00");
+  await openSessionModal.getByLabel("Clock out time").fill("");
+  await openSessionModal.getByRole("button", { name: "Clock out date" }).getByText("Choose date").waitFor();
+  await openSessionModal.getByLabel("Note", { exact: true }).fill("Open session correction");
+  await openSessionModal.getByRole("button", { name: "Save changes" }).click();
+  await openSessionPage.getByText("Session updated.").waitFor();
+  await openSessionPage.close();
   await kiosk.getByLabel("Enter your PIN").waitFor();
   fixture.dropReply();
   await clock();
@@ -328,12 +345,27 @@ try {
   await admin.getByText("Session added.", { exact: true }).waitFor();
   const row = admin.getByRole("button", { name: /Open session for Alex/ });
   await row.click();
+  await modal.getByRole("button", { name: "Edit session", exact: true }).click();
+  assert.equal(await modal.getByLabel("Clock in time").inputValue(), "17:00");
+  assert.equal(await modal.getByLabel("Clock out time").inputValue(), "22:30");
+  for (const label of ["Clock in", "Clock out"]) {
+    await modal.getByRole("button", { name: label + " date" }).click();
+    await modal.locator('[data-day="2025-11-20"]').getByRole("button").click();
+    await modal.getByRole("button", { name: label + " date" }).click();
+    await modal.getByRole("gridcell", { name: /19/ }).getByRole("button").click();
+  }
+  await modal.getByLabel("Clock out time").fill("22:45");
+  await modal.getByRole("button", { name: "Save changes" }).click();
+  await admin.getByText("Session updated.").waitFor();
+  await row.click();
   await modal.getByRole("button", { name: "Mark Reviewed" }).click();
   await admin.getByText("Session marked Reviewed.").waitFor();
   await row.click();
   await modal.getByRole("button", { name: "Reopen for correction" }).click();
   await modal.getByText("Session reopened for correction.").waitFor();
-  await modal.getByLabel("Clock out", { exact: true }).fill("2025-11-19T23:00");
+  await modal.getByRole("button", { name: "Clock in date" }).waitFor();
+  await modal.getByRole("button", { name: "Clock out date" }).waitFor();
+  await modal.getByLabel("Clock out time").fill("23:00");
   await modal.getByLabel("Note", { exact: true }).fill("Dinner service");
   await modal.getByRole("button", { name: "Save changes" }).click();
   await admin.getByText("Session updated.").waitFor();
@@ -357,7 +389,7 @@ try {
   );
   await row.click();
   await modal.getByText("Change history").click();
-  await modal.getByText("Session edited", { exact: true }).waitFor();
+  await modal.getByText("Session edited", { exact: true }).first().waitFor();
   await modal.getByRole("button", { name: "Mark Reviewed" }).click();
   await admin.getByText("Session marked Reviewed.").waitFor();
   await employee.reload();
@@ -506,6 +538,15 @@ try {
   await modal.getByRole("button", { name: "Add session" }).click();
   await admin.getByText("Session added.").waitFor();
   await admin.getByText("Wed, 19 Nov").first().waitFor();
+  await admin.getByRole("button", { name: /Open session for Alex.*at 10:00/ }).click();
+  await modal.getByRole("button", { name: "Edit session", exact: true }).click();
+  assert.equal(
+    await modal.getByLabel("Clock in", { exact: true }).inputValue(),
+    "2025-11-19T10:00",
+  );
+  await modal.getByLabel("Clock out", { exact: true }).fill("2025-11-19T11:30");
+  await modal.getByRole("button", { name: "Save changes" }).click();
+  await admin.getByText("Session updated.").waitFor();
   await admin.setViewportSize({ width: 1280, height: 720 });
   await admin.getByRole("link", { name: "Employees", exact: true }).click();
   await admin.getByRole("button", { name: "Add Employee" }).click();

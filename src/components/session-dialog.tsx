@@ -72,12 +72,12 @@ function TimeInput({
   label,
   field,
   required,
-  calendar,
+  defaultDay,
 }: {
   label: string;
   field: ReturnType<typeof useShiftField>;
   required: boolean;
-  calendar: boolean;
+  defaultDay: string;
 }) {
   const [desktop, setDesktop] = useState(false);
   const [open, setOpen] = useState(false);
@@ -94,9 +94,11 @@ function TimeInput({
     parts?.length === 3 && parts.every(Number.isFinite)
       ? new Date(parts[0], parts[1] - 1, parts[2])
       : undefined;
+  const [year, month, date] = defaultDay.split("-").map(Number);
+  const defaultMonth = new Date(year, month - 1, date);
   return (
     <div>
-      {calendar && desktop && selected ? (
+      {desktop ? (
         <div className="shift-date-time">
           <span>{label}</span>
           <Popover.Root open={open} onOpenChange={setOpen}>
@@ -106,12 +108,14 @@ function TimeInput({
                 className="shift-date-button"
                 aria-label={label + " date"}
               >
-                {new Intl.DateTimeFormat("en-AU", {
-                  weekday: "short",
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                }).format(selected).replace(",", "")}
+                {selected
+                  ? new Intl.DateTimeFormat("en-AU", {
+                      weekday: "short",
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    }).format(selected).replace(",", "")
+                  : "Choose date"}
                 <CalendarDays size={18} />
               </button>
             </Popover.Trigger>
@@ -123,7 +127,7 @@ function TimeInput({
               <DayPicker
                 mode="single"
                 selected={selected}
-                defaultMonth={selected}
+                defaultMonth={selected ?? defaultMonth}
                 autoFocus
                 onSelect={(date) => {
                   if (!date) return;
@@ -143,7 +147,13 @@ function TimeInput({
             aria-label={label + " time"}
             required={required}
             value={time || ""}
-            onChange={(e) => field.change(day + "T" + e.target.value)}
+            onChange={(e) =>
+              field.change(
+                !e.target.value && !required
+                  ? ""
+                  : (day || defaultDay) + "T" + e.target.value,
+              )
+            }
           />
         </div>
       ) : (
@@ -465,12 +475,12 @@ export function SessionDialog({
                 field={start}
                 label="Clock in"
                 required
-                calendar={!session}
+                defaultDay={week}
               />
               <TimeInput
                 field={finish}
                 label="Clock out"
-                calendar={!session}
+                defaultDay={start.value.split("T")[0] || week}
                 required={!session || !!session.ended_at}
               />
               <strong>
