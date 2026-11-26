@@ -9,6 +9,7 @@ import {
   CalendarDays,
   CalendarRange,
   CheckCheck,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -28,7 +29,10 @@ import {
 
 export function StaffList({ staff, org }: { staff: Staff[]; org?: string }) {
   const [query, setQuery] = useState("");
-  const matches = searchEmployees(staff, query);
+  const active = staff.filter((person) => person.active);
+  const archived = staff.filter((person) => !person.active);
+  const activeMatches = searchEmployees(active, query);
+  const archivedMatches = searchEmployees(archived, query);
   return (
     <>
       <p className="eyebrow">
@@ -40,8 +44,10 @@ export function StaffList({ staff, org }: { staff: Staff[]; org?: string }) {
         <div className="section-head">
           <h2>Staff directory</h2>
           <span>
-            {matches.length !== staff.length && `${matches.length} of `}
-            {staff.length} employees
+            {activeMatches.length !== active.length &&
+              `${activeMatches.length} of `}
+            {active.length} active{" "}
+            {active.length === 1 ? "employee" : "employees"}
           </span>
           {org && <AddEmployee org={org} />}
         </div>
@@ -57,36 +63,61 @@ export function StaffList({ staff, org }: { staff: Staff[]; org?: string }) {
             />
           </div>
         )}
-        {matches.map((person) => (
-          <div className="directory-row" key={person.id}>
-            {org ? (
-              <Link
-                className="employee-link"
-                href={
-                  "/workspace/" + org + "/admin?view=staff&person=" + person.id
-                }
-              >
-                <Person name={person.display_name} />
-              </Link>
-            ) : (
-              <Person name={person.display_name} />
-            )}
-            <span
-              className={"status " + (person.active ? "reviewed" : "archived")}
-            >
-              {person.active ? "Active" : "Archived"}
-            </span>
-          </div>
+        {activeMatches.map((person) => (
+          <DirectoryRow key={person.id} person={person} org={org} />
         ))}
-        {!matches.length && (
-          <p className="empty" role="status">
-            {staff.length
-              ? "No employees match your search."
-              : "No employees yet."}
+        {!activeMatches.length && (
+          <p className="directory-empty" role="status">
+            {!staff.length
+              ? "No employees yet."
+              : query.trim()
+                ? "No active employees match your search."
+                : "No active employees."}
           </p>
+        )}
+        {archived.length > 0 && (
+          <details className="directory-archive">
+            <summary>
+              Archived employees
+              <span>
+                {archivedMatches.length !== archived.length &&
+                  `${archivedMatches.length} of `}
+                {archived.length}
+              </span>
+              <ChevronDown size={18} aria-hidden="true" />
+            </summary>
+            {archivedMatches.map((person) => (
+              <DirectoryRow key={person.id} person={person} org={org} />
+            ))}
+            {!archivedMatches.length && (
+              <p className="directory-empty" role="status">
+                No archived employees match your search.
+              </p>
+            )}
+          </details>
         )}
       </section>
     </>
+  );
+}
+
+function DirectoryRow({ person, org }: { person: Staff; org?: string }) {
+  return (
+    <div className="directory-row">
+      {org ? (
+        <Link
+          className="employee-link"
+          href={"/workspace/" + org + "/admin?view=staff&person=" + person.id}
+        >
+          <Person name={person.display_name} />
+        </Link>
+      ) : (
+        <Person name={person.display_name} />
+      )}
+      <span className={"status " + (person.active ? "reviewed" : "archived")}>
+        {person.active ? "Active" : "Archived"}
+      </span>
+    </div>
   );
 }
 
@@ -174,8 +205,12 @@ export function TimesheetBoard({
   const [dialog, setDialog] = useState<Session | "new" | null>(null);
   const [notice, setNotice] = useState("");
   const admin = role === "admin";
-  const selected =
-    admin && employee && staff.some((p) => p.id === employee) ? employee : "";
+  const activeStaff = staff.filter((person) => person.active);
+  const filteredPerson = admin
+    ? staff.find((person) => person.id === employee)
+    : undefined;
+  const selected = filteredPerson?.id ?? "";
+  const activeSelection = filteredPerson?.active ? selected : "";
   const rows = selected
     ? sessions.filter((s) => s.employee_id === selected)
     : sessions;
@@ -256,8 +291,8 @@ export function TimesheetBoard({
         <SessionDialog
           org={org}
           session={dialog === "new" ? null : dialog}
-          staff={staff}
-          selected={selected}
+          staff={dialog === "new" ? activeStaff : staff}
+          selected={activeSelection}
           week={week.key}
           zone={zone}
           close={() => setDialog(null)}
@@ -275,7 +310,7 @@ export function TimesheetBoard({
           </div>
           {admin && (
             <div className="shift-tools">
-              {org && !!staff.length && (
+              {org && activeStaff.length > 0 && (
                 <button
                   className="button"
                   onClick={() => {
@@ -290,12 +325,18 @@ export function TimesheetBoard({
                 key={selected}
                 base={base}
                 week={week.key}
-                staff={staff}
-                selected={selected}
+                staff={activeStaff}
+                selected={activeSelection}
               />
             </div>
           )}
         </div>
+        {filteredPerson && !filteredPerson.active && (
+          <p className="timesheet-filter-note">
+            Showing historical sessions for {filteredPerson.display_name}. Choose
+            Filter with All employees to return to the full timesheet.
+          </p>
+        )}
         {rows.length === 0 ? (
           <div className="empty">
             <CalendarDays />

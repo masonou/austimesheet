@@ -24,7 +24,7 @@ Open [localhost:3000](http://localhost:3000). Keep the existing `NEXT_PUBLIC_SUP
 
 The weekly window runs from local Monday midnight up to the following Monday. Each session shows its full elapsed duration. Weekly totals count only the portion of completed sessions inside that week, including over midnight and daylight-saving transitions. Open sessions appear as open and accrue no displayed total until closed.
 
-Open **Filter by employee** on the weekly timesheet or the **Employee** field in **Add session** to see the full list, including labelled archived employees. Type part of a name to narrow the list, then click a match or select it with the arrow keys and **Enter**. On the weekly timesheet, choose **Filter** to apply the selection. Choose **All employees** and apply the filter to show everyone again.
+Open **Filter by employee** on the weekly timesheet or the **Employee** field in **Add session** to see the active employees. Type part of a name to narrow the list, then click a match or select it with the arrow keys and **Enter**. On the weekly timesheet, choose **Filter** to apply the selection. Choose **All employees** and apply the filter to see every session for the week, including historical sessions for archived employees.
 
 ## Phase 3C reporting
 
@@ -32,7 +32,7 @@ Open **Admin → Reports** to preview completed time and export a workbook. Use 
 
 **This week** and **Last week** run Monday through Sunday in the workplace timezone. **Fortnight** starts on the chosen date and includes the following 13 days. A **Custom date range** includes both dates.
 
-Choose **All employees** or **Selected employees**. With **Selected employees**, use **Search employees** to narrow the checklist and tick the names you want. Checked employees stay selected as you change the search. Choose **Apply filters** to update the report. Inactive employees with completed time appear in the breakdown.
+Choose **All employees** or **Selected employees**. With **Selected employees**, use **Search employees** to narrow the list of active employees and tick the names you want. Checked employees stay selected as you change the search. Choose **Apply filters** to update the report. Historical sessions for archived employees are included when you choose **All employees**.
 
 **Export Excel** downloads one workbook. A team workbook starts with an **Overview** showing workplace, period, generation date, timezone, employee hours and overall totals. The overview flags employees with pending sessions. Each employee tab contains one row per completed shift, local clock times, numeric hours by day category, review status, notes and a totals block. To share an individual workbook, explicitly select that employee alone and apply the filters before exporting. This creates a workbook with just that employee's worksheet.
 
@@ -141,7 +141,7 @@ Use the same secrets on every instance for this database. After the SQL and envi
 
 ### Employee profiles and PINs
 
-In **Employees**, use **Search employees** to narrow the directory as you type, then click a name to open their profile. The profile shows the linked login email when available, employment status, and whether the employee has an assigned PIN. **Edit name** updates the employee directory and timesheet label. It does not change the Auth account.
+In **Employees**, use **Search employees** to narrow the directory as you type, then click a name to open their profile. Expand **Archived employees** below the active list to view archived profiles. The search applies to both lists. The profile shows the linked login email when available, employment status, and whether the employee has an assigned PIN. **Edit name** updates the employee directory and timesheet label. It does not change the Auth account.
 
 A pre-upgrade PIN continues working on the kiosk. **Reset required** means its one-way verifier has no encrypted copy. Choose **Change PIN**, enter a six-digit value or generate one, and save. **Reveal PIN** makes a fresh server request for that employee and hides the result after 30 seconds, on leaving the tab, or when you select **Hide PIN**. Archived employees keep their history and cannot clock.
 

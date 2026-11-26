@@ -346,6 +346,7 @@ export async function browserFixture() {
     org: f.org,
     harbour,
     harbourEmployee,
+    formerEmployee,
     existingEmail,
     emailRequests: () => emailRequests,
     dropReply: () => {

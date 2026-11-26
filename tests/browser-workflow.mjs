@@ -114,9 +114,20 @@ try {
   await login(employee, fixture.email);
   assert.equal(await employee.getByRole("link", { name: /kiosk/i }).count(), 0);
   await admin.getByRole("link", { name: "Employees", exact: true }).click();
-  const directorySearch = admin.getByRole("searchbox", { name: "Search employees" });
+  const directorySearch = admin.getByRole("searchbox", {
+    name: "Search employees",
+  });
+  const archive = admin.locator("summary").filter({ hasText: "Archived employees" });
+  const archivedProfile = admin.getByRole("link", { name: "Sam Wilson" });
+  await archive.waitFor();
+  assert.equal(await archivedProfile.count(), 0);
+  await directorySearch.fill("wils");
+  await archive.click();
+  await archivedProfile.click();
+  await admin.getByRole("heading", { name: "Sam Wilson" }).waitFor();
+  await admin.getByRole("link", { name: "Employees", exact: true }).click();
   await directorySearch.fill("missing name");
-  await admin.getByText("No employees match your search.").waitFor();
+  await admin.getByText("No active employees match your search.").waitFor();
   await directorySearch.fill("lEe");
   assert.equal(await admin.getByRole("link", { name: "Sam Wilson" }).count(), 0);
   await admin.getByRole("link", { name: "Alex Lee" }).click();
@@ -258,27 +269,42 @@ try {
   await admin.reload();
   await admin.getByText(/^Revoked/).waitFor();
   const historical = "?week=2025-11-17";
-  await admin.goto(base + "/workspace/" + fixture.org + "/admin" + historical);
+  const timesheetsUrl = base + "/workspace/" + fixture.org + "/admin";
   const employeeFilter = admin.getByRole("combobox", { name: "Filter by employee" });
+  await admin.goto(timesheetsUrl + "?week=2025-11-24&employee=" + fixture.formerEmployee);
+  await admin.getByText(/Showing historical sessions for Sam Wilson/).waitFor();
+  await admin.getByRole("button", { name: /Open session for Sam Wilson/ }).waitFor();
+  assert.equal(await employeeFilter.inputValue(), "All employees");
+  await admin.getByRole("button", { name: "Filter", exact: true }).click();
+  await admin.waitForURL((url) => !url.searchParams.get("employee"));
+  await admin.getByRole("button", { name: /Open session for Sam Wilson/ }).waitFor();
+
+  await admin.goto(timesheetsUrl + historical);
   await employeeFilter.click();
+  assert.equal(await admin.getByRole("option", { name: /Sam Wilson/ }).count(), 0);
   await employeeFilter.pressSequentially("wils");
-  await admin.getByRole("option", { name: "Sam Wilson (archived)" }).click();
+  await admin.getByText("No employees match your search.").waitFor();
+  await employeeFilter.fill("smi");
+  await admin.getByRole("option", { name: "Alex Smith" }).click();
   await admin.getByRole("button", { name: "Filter", exact: true }).click();
   await admin.waitForURL((url) => !!url.searchParams.get("employee"));
   assert.equal(new URL(admin.url()).searchParams.get("week"), "2025-11-17");
-  assert.equal(await employeeFilter.inputValue(), "Sam Wilson (archived)");
+  assert.equal(await employeeFilter.inputValue(), "Alex Smith");
   await admin.getByRole("button", { name: "Add session" }).click();
   const modal = admin.getByRole("dialog");
-  assert.equal(await modal.getByLabel("Employee", { exact: true }).inputValue(), "Sam Wilson (archived)");
+  const employeeField = modal.getByRole("combobox", { name: "Employee" });
+  assert.equal(await employeeField.inputValue(), "Alex Smith");
   await modal.getByRole("button", { name: "Close" }).click();
   await employeeFilter.click();
   await admin.getByRole("option", { name: "All employees" }).click();
   await admin.getByRole("button", { name: "Filter", exact: true }).click();
   await admin.waitForURL((url) => !url.searchParams.get("employee"));
   await admin.getByRole("button", { name: "Add session" }).click();
-  const employeeField = modal.getByRole("combobox", { name: "Employee" });
   await employeeField.click();
-  await modal.getByRole("option", { name: "Sam Wilson (archived)" }).waitFor();
+  await modal.getByRole("option", { name: "Alex Smith" }).waitFor();
+  assert.equal(await modal.getByRole("option", { name: /Sam Wilson/ }).count(), 0);
+  await employeeField.fill("wilson");
+  await modal.getByText("No employees match your search.").waitFor();
   await employeeField.press("Escape");
   assert.equal(await modal.getByRole("listbox").count(), 0);
   assert(await modal.isVisible());
@@ -438,23 +464,6 @@ try {
     .filter({ hasText: "Sam Wilson (inactive)" });
   assert.match(await former.innerText(), /Saturday\s+2\.00/);
   assert.equal(await admin.getByText("Harbour employee").count(), 0);
-  await admin.getByLabel("Employees", { exact: true }).selectOption("some");
-  await reportEmployeeSearch.fill("alex");
-  await admin
-    .getByRole("checkbox", { name: "Alex Smith", exact: true })
-    .check();
-  await reportEmployeeSearch.fill("wilson");
-  await admin
-    .getByRole("checkbox", { name: "Sam Wilson (inactive)", exact: true })
-    .check();
-  await admin.getByRole("button", { name: "Apply filters" }).click();
-  await admin.waitForURL(
-    (url) => url.searchParams.getAll("employee").length === 2,
-  );
-  assert.equal(
-    await admin.locator(".metric.primary strong").innerText(),
-    "10.00",
-  );
   const team = await admin.request.get(
     new URL(await excelLink.getAttribute("href"), base).href,
   );
@@ -474,6 +483,17 @@ try {
           row[3] === 2 && row[4] === 2 && row[6] === 4 && row[7] === "Pending",
       ),
   );
+  const savedReport = new URL(reportUrl);
+  savedReport.searchParams.append("employee", fixture.formerEmployee);
+  await admin.goto(savedReport.href);
+  await admin.getByText(/This saved report includes archived employees/).waitFor();
+  await admin.locator(".metric.primary strong").filter({ hasText: /^10\.00$/ }).waitFor();
+  assert.equal(await admin.getByRole("checkbox", { name: /Sam Wilson/ }).count(), 0);
+  await reportEmployeeSearch.fill("wilson");
+  await admin.getByText("No employees match your search.").waitFor();
+  await admin.getByRole("button", { name: "Apply filters" }).click();
+  await admin.waitForURL(reportUrl);
+  await admin.locator(".metric.primary strong").filter({ hasText: /^6\.00$/ }).waitFor();
   await admin.setViewportSize({ width: 390, height: 844 });
   await admin.goto(
     base + "/workspace/" + fixture.org + "/admin?week=2025-11-17",

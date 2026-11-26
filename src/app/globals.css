@@ -602,12 +602,46 @@ h2 {
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
 }
-.directory-row:last-child {
-  border: 0;
+.directory-row:last-child,
+.directory-row:has(+ .directory-archive) {
+  border-bottom: 0;
 }
 .directory-search {
   padding: 0.9rem 1.35rem;
   border-bottom: 1px solid var(--border);
+}
+.directory-empty {
+  padding: 1.15rem 1.35rem;
+  color: var(--muted-foreground);
+}
+.directory-archive {
+  border-top: 1px solid var(--border);
+}
+.directory-archive > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 1rem 1.35rem;
+  background: var(--muted);
+  font-weight: 550;
+  cursor: pointer;
+}
+.directory-archive > summary::-webkit-details-marker {
+  display: none;
+}
+.directory-archive > summary:focus-visible {
+  outline-offset: -3px;
+}
+.directory-archive > summary > span {
+  margin-inline-start: auto;
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.directory-archive[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+.directory-archive[open] > summary > svg {
+  transform: rotate(180deg);
 }
 .directory-search input,
 .report-choices .employee-search {
@@ -615,6 +649,11 @@ h2 {
 }
 .timesheet-panel:has(.employee-picker-menu) {
   overflow: visible;
+}
+.timesheet-filter-note {
+  padding: 0.8rem 1.35rem;
+  color: var(--muted-foreground);
+  font-size: 0.9rem;
 }
 .filter {
   gap: 0.35rem;

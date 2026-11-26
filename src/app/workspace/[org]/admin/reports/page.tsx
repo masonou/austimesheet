@@ -84,6 +84,14 @@ async function ReportContent({
           {issue}
         </p>
       )}
+      {data &&
+        data.filters.ids.length > 0 &&
+        data.people.some(({ staff }) => !staff.active) && (
+          <p className="report-warning">
+            This saved report includes archived employees. Apply filters to update
+            the selection.
+          </p>
+        )}
       {data && <ReportPreview report={data} path={path} />}
     </ReportFilters>
   );

@@ -26,13 +26,16 @@ export function ReportFilters({
 }: Props) {
   const [mode, setMode] = useState(period),
     [some, setSome] = useState(ids.length > 0);
-  const [selected, setSelected] = useState(ids),
+  const [selection, setSelected] = useState(ids),
     [error, setError] = useState("");
   const [pending, transition] = useTransition(),
     router = useRouter();
   const [edited, setEdited] = useState(false);
   const [employeeQuery, setEmployeeQuery] = useState("");
-  const matches = searchEmployees(staff, employeeQuery);
+  const activeStaff = staff.filter((person) => person.active);
+  const activeIds = new Set(activeStaff.map((person) => person.id));
+  const selected = selection.filter((id) => activeIds.has(id));
+  const matches = searchEmployees(activeStaff, employeeQuery);
   return (
     <>
       <form
@@ -145,15 +148,14 @@ export function ReportFilters({
                     }}
                   />
                   {p.display_name}
-                  {!p.active && " (inactive)"}
                 </label>
               ))}
             </div>
             {!matches.length && (
               <p role="status">
-                {staff.length
+                {activeStaff.length
                   ? "No employees match your search."
-                  : "No employees yet."}
+                  : "No active employees."}
               </p>
             )}
           </fieldset>

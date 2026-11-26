@@ -246,7 +246,10 @@ export function SessionDialog({
   const person = staff.find((p) => p.id === employee)?.display_name;
   async function submit(operation: SessionChange["operation"]) {
     if (busy) return;
-    if (operation === "create" && !employee) {
+    if (
+      operation === "create" &&
+      !staff.some((person) => person.id === employee)
+    ) {
       setError("Select an employee from the list.");
       return;
     }

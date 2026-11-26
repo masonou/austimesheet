@@ -5,10 +5,6 @@ import { Check, ChevronDown } from "lucide-react";
 import { searchEmployees } from "@/lib/employee-search";
 import type { Staff } from "@/lib/timesheets";
 
-function employeeLabel(person: Staff) {
-  return person.display_name + (person.active ? "" : " (archived)");
-}
-
 export function EmployeePicker({
   label,
   staff,
@@ -32,14 +28,10 @@ export function EmployeePicker({
   const [activeIndex, setActiveIndex] = useState(-1);
   const activeOption = useRef<HTMLLIElement>(null);
   const person = staff.find((employee) => employee.id === value);
-  const selectedLabel = person
-    ? employeeLabel(person)
-    : allowAll
-      ? "All employees"
-      : "";
+  const selectedLabel = person?.display_name ?? (allowAll ? "All employees" : "");
   const options = searchEmployees(staff, query ?? "").map((employee) => ({
     id: employee.id,
-    label: employeeLabel(employee),
+    label: employee.display_name,
   }));
   if (allowAll && !query?.trim()) {
     options.unshift({ id: "", label: "All employees" });
