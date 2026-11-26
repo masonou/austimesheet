@@ -38,7 +38,7 @@ export function pinKey() {
   return key;
 }
 
-export { serviceClient as kioskClient } from "@/lib/supabase/service";
+export { kioskClient };
 
 export async function saveDevice(token: string) {
   (await cookies()).set(cookieName, token, {

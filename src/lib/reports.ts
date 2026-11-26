@@ -27,7 +27,7 @@ function date(value: string | null) {
     try {
       return Temporal.PlainDate.from(value);
     } catch {
-      /* Show a field-level explanation below. */
+      // Use the same validation error for malformed and impossible dates.
     }
   }
   throw new ReportInputError("Choose a valid start and end date.");

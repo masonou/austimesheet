@@ -95,10 +95,10 @@ If the result is true, skip the migration. Deploy or restart the application aft
 
 **Try a correction in a test workplace.**
 
-1. Sign in as an administrator, navigate to the week containing **19 November 2026**, and choose **Add session**. Select an employee, set **17:00** and **22:30** on that date, and enter the reason **Missed clock-in**. Use a past interval free of other sessions. Verify **Manual entry**, **Pending** and a **5h 30m** contribution to the weekly total.
-2. Open the row and select **Mark Reviewed**. Open it again and choose **Reopen for correction**. The editor opens immediately. Change the finish to **23:00**, add a note and enter the correction reason. Saving adds 30 minutes to the weekly total.
-3. Open **Change history** to see the original values, corrections, reasons, timestamps and administrator identifiers. Mark the session Reviewed again. Refresh the employee's personal timesheet for that week to see **6h**, the updated note and **Reviewed**.
-4. To cancel a mistaken record, reopen it if reviewed, then select **Void session** and confirm with a reason. The row and history stay visible. Its hours and count are excluded from the totals, and the employee can record another shift in that interval.
+1. Sign in as an administrator, navigate to the week containing **19 November 2026**, and choose **Add session**. Select an employee, set **17:00** and **22:30** on that date, and optionally enter **Missed clock-in** in **Note**. Use a past interval free of other sessions. Verify **Manual entry**, **Pending** and a **5h 30m** contribution to the weekly total.
+2. Open the row and select **Mark Reviewed**. Open it again and choose **Reopen for correction**. The editor opens immediately. Change the finish to **23:00** and optionally update the note. Saving adds 30 minutes to the weekly total.
+3. Open **Change history** to see the original values, corrections, notes, change descriptions and timestamps. Mark the session Reviewed again. Refresh the employee's personal timesheet for that week to see **6h**, the updated note and **Reviewed**.
+4. To cancel a mistaken record, reopen it if reviewed, then select **Void session**, optionally enter a **Note**, and select **Confirm void**. The row and history stay visible. Its hours and count are excluded from the totals, and the employee can record another shift in that interval.
 
 Dates in the editor use the workplace timezone. For a repeated time at the end of daylight saving, select the intended UTC offset. A skipped local time is unavailable. Weekly totals sum elapsed whole clock minutes within local Monday-to-Monday boundaries. Hours labels show hours and minutes without rounding up seconds. An open session can be corrected or completed and becomes eligible for review once it has a finish time. If another administrator or a kiosk has already changed a session, reopen its details before editing again.
 
@@ -239,7 +239,7 @@ The test suite applies the migrations to disposable PostgreSQL and checks the up
 - `src/app` — entry page, auth and kiosk server actions, shared kiosk, sample routes and protected workspaces.
 - `src/lib/kiosk` — server-only credential handling, PIN derivation and cookie checks. `tests/` covers the attendance database contract.
 - `src/components` — shared dashboard shell, timesheet views and login form. `ui/` and `components.json` provide the shadcn/ui component setup.
-- `src/proxy.ts` and `src/lib/supabase` — per-request server client, browser client factory, public configuration and cookie refresh.
+- `src/proxy.ts` and `src/lib/supabase` — per-request server client, service client, public configuration and cookie refresh.
 - `src/lib/workspace.ts` and `records.ts` — membership checks and scoped database reads.
 - `src/lib/timesheets.ts` and `sample.ts` — timezone-aware week boundaries, elapsed-time calculations and fictional preview records.
 - `supabase/migrations` — ordered schema changes. The application uses the existing Supabase project.
