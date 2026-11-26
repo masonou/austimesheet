@@ -11,7 +11,7 @@ import readExcelFile from "read-excel-file/node";
 import { strFromU8, unzipSync } from "fflate";
 import { reportCsv } from "../src/lib/report-export.ts";
 import { reportWorkbook } from "../src/lib/report-workbook.ts";
-import { getWeek } from "../src/lib/timesheets.ts";
+import { elapsed, getWeek } from "../src/lib/timesheets.ts";
 
 const a = { id: randomUUID(), display_name: 'Jo, "Lee"', active: true };
 const b = { id: randomUUID(), display_name: "=TEST", active: false };
@@ -103,7 +103,7 @@ test("all, one or multiple staff, inactive historical staff, pending review, ope
   assert.equal(selected([b.id, b.id]).completed, 1);
   assert.equal(makeReport(filters(), directory, []).people.length, 2);
 });
-test("range clipping uses half-open boundaries and retains sub-second precision", () => {
+test("range clipping uses half-open boundaries after discarding seconds at each endpoint", () => {
   const s = session(
     "2026-11-15T23:59:59.123456+10:00",
     "2026-11-17T00:00:00.654321+10:00",
@@ -113,8 +113,9 @@ test("range clipping uses half-open boundaries and retains sub-second precision"
     day = build(monday, monday),
     right = build("2026-11-17", "2026-11-17");
   assert.equal(day.hours.total, 24n * hour);
-  assert.equal(left.hours.total, 876544000n);
-  assert.equal(right.hours.total, 654321000n);
+  assert.equal(left.hours.total, hour / 60n);
+  assert.equal(right.hours.total, 0n);
+  assert.equal(right.completed, 0);
   assert.equal(
     left.hours.total + day.hours.total + right.hours.total,
     build("2026-11-15", "2026-11-17").hours.total,
@@ -127,6 +128,32 @@ test("range clipping uses half-open boundaries and retains sub-second precision"
     0,
   );
   assert.equal(decimalHours(18_000_000_000n), "0.01");
+});
+
+test("timesheets, report previews, CSVs and Excel use the same clock minutes for existing records", async () => {
+  for (const [clockIn, minutes, displayed] of [
+    ["07:00:00.123456", 390, "6.50"],
+    ["07:01:00", 389, "6.48"],
+    ["07:00:59.999999", 390, "6.50"],
+  ]) {
+    const shift = session(
+      "2026-11-19T" + clockIn + "+10:00",
+      "2026-11-19T13:30:59.999999+10:00",
+    );
+    const r = makeReport(filters(), [a], [shift]);
+    assert.equal(elapsed(shift), minutes * 60000);
+    assert.equal(r.hours.total, BigInt(minutes) * hour / 60n);
+    assert.equal(decimalHours(r.hours.total), displayed);
+    const [detail] = parseCsv(reportCsv(r, "detail"));
+    assert.equal(detail["Clock In"], clockIn.slice(0, 5));
+    assert.equal(detail["Clock Out"], "13:30");
+    assert.equal(detail["Total Hours"], displayed);
+    const [, sheet] = await reopen(r);
+    const [row] = shiftsIn(sheet);
+    assert.equal(row[6], Number(displayed));
+    assert.equal(row[1].getUTCSeconds(), 0);
+    assert.equal(row[2].getUTCSeconds(), 0);
+  }
 });
 test("Sydney's 23- and 25-hour Sundays and Lord Howe's half-hour DST change", () => {
   for (const [day, tz, start, end, expected] of [
@@ -325,9 +352,9 @@ test("two-decimal shift rows, category totals and overview reconcile for split a
   assert.deepEqual(
     details.map((r) => r.slice(3, 7)),
     [
-      [0.01, 0, 0, 0.01],
       [0, 0, 0, 0],
-      [0.01, 0, 0, 0.01],
+      [0, 0, 0, 0],
+      [0.02, 0, 0, 0.02],
     ],
   );
   assert.equal(totalIn(person, "TOTAL HOURS"), 0.02);

@@ -197,8 +197,8 @@ test("workplace time entry preserves microseconds, rejects gaps and distinguishe
   assert.equal(shiftField(precise, zone), "2025-04-06T02:30");
   assert.equal(shiftChoices(shiftField(precise, zone), zone, precise)[1].instant, precise);
   assert.equal(hours(7000), "0m");
-  assert.equal(hours(45000), "0h 1m");
-  assert.equal(hours(3599000), "1h");
+  assert.equal(hours(45000), "0m");
+  assert.equal(hours(3599000), "0h 59m");
   const overnight = {
     started_at: "2025-10-04T22:00+10:00",
     ended_at: "2025-10-05T06:00+11:00",
@@ -208,6 +208,32 @@ test("workplace time entry preserves microseconds, rejects gaps and distinguishe
     started_at: "2025-11-23T23:00:00.000001+11:00",
     ended_at: "2025-11-24T01:00:00.000002+11:00",
   };
-  assert.equal(elapsed(boundary, getWeek("2025-11-23", zone)), 3599999.999);
-  assert.equal(elapsed(boundary, getWeek("2025-11-24", zone)), 3600000.002);
+  assert.equal(elapsed(boundary, getWeek("2025-11-23", zone)), 3600000);
+  assert.equal(elapsed(boundary, getWeek("2025-11-24", zone)), 3600000);
+});
+
+test("shift durations discard seconds from each clock time before calculating minutes", () => {
+  for (const [start, finish, minutes] of [
+    ["07:00:00.000001", "13:30:59.999999", 390],
+    ["07:01:00", "13:30:59.999999", 389],
+    ["07:00:59.999999", "13:30:00", 390],
+    ["13:13:59.999999", "13:14:00", 1],
+    ["13:13:00", "13:13:59.999999", 0],
+  ]) {
+    const duration = elapsed({
+      started_at: "2026-11-26T" + start + "+10:00",
+      ended_at: "2026-11-26T" + finish + "+10:00",
+    });
+    assert.equal(duration, minutes * 60000);
+  }
+  const first = elapsed({
+    started_at: "2026-11-26T07:00:00+10:00",
+    ended_at: "2026-11-26T13:30:59+10:00",
+  });
+  const second = elapsed({
+    started_at: "2026-11-27T07:00:59+10:00",
+    ended_at: "2026-11-27T13:30:00+10:00",
+  });
+  assert.equal(hours(first), "6h 30m");
+  assert.equal(hours(first + second), "13h");
 });

@@ -1,5 +1,5 @@
 import { Temporal } from "@js-temporal/polyfill";
-import type { Staff, Session } from "./timesheets";
+import { minuteInstant, type Staff, type Session } from "./timesheets.ts";
 
 export type ReportSession = Pick<
   Session,
@@ -179,13 +179,20 @@ export function makeReport(
     if (!who || seen.has(row.id))
       throw new Error("Report records changed. Refresh the report.");
     seen.add(row.id);
-    const actualStart = Temporal.Instant.from(row.started_at),
-      actualEnd = Temporal.Instant.from(row.ended_at);
+    const actualStart = minuteInstant(row.started_at),
+      actualEnd = minuteInstant(row.ended_at);
     let cursor =
       Temporal.Instant.compare(actualStart, start) < 0 ? start : actualStart;
     const finish =
       Temporal.Instant.compare(actualEnd, end) > 0 ? end : actualEnd;
-    if (Temporal.Instant.compare(cursor, finish) >= 0) continue;
+    // Keep completed shifts within one minute as zero-hour rows. A shift
+    // clipped to zero at the period boundary contributes no row or hours.
+    if (
+      Temporal.Instant.compare(actualStart, end) >= 0 ||
+      Temporal.Instant.compare(cursor, finish) > 0 ||
+      (cursor.equals(finish) && !actualStart.equals(actualEnd))
+    )
+      continue;
     const clockIn = actualStart.toZonedDateTimeISO(zone);
     const shift: Shift = {
       id: row.id,

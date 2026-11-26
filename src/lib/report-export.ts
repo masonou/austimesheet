@@ -89,8 +89,9 @@ export function exportPeople(report: Report) {
     const sessions = person.sessions.map((shift, i) => {
       const allocations = shift.allocations;
       const clipped =
-        allocations[0].from !== shift.clockIn ||
-        allocations[allocations.length - 1].to !== shift.clockOut;
+        allocations.length > 0 &&
+        (allocations[0].from !== shift.clockIn ||
+          allocations[allocations.length - 1].to !== shift.clockOut);
       const notes = [
         clipped ? "Only time within the reporting period is included." : "",
         shift.clockIn.slice(-6) !== shift.clockOut.slice(-6)

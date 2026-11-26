@@ -63,6 +63,14 @@ export function dayLabel(value: string, zone: string) {
   }).format(new Date(value));
 }
 
+// Attendance uses the displayed minute at each endpoint, never rounded seconds.
+export function minuteInstant(value: string) {
+  return Temporal.Instant.from(value).round({
+    smallestUnit: "minute",
+    roundingMode: "floor",
+  });
+}
+
 export function elapsed(
   session: Pick<Session, "started_at" | "ended_at"> & {
     voided_at?: string | null;
@@ -70,8 +78,8 @@ export function elapsed(
   week?: Week,
 ) {
   if (!session.ended_at || session.voided_at) return 0;
-  const start = Temporal.Instant.from(session.started_at);
-  const end = Temporal.Instant.from(session.ended_at);
+  const start = minuteInstant(session.started_at);
+  const end = minuteInstant(session.ended_at);
   const lo =
     week && Temporal.Instant.compare(start, week.start) < 0
       ? Temporal.Instant.from(week.start)
@@ -84,7 +92,7 @@ export function elapsed(
 }
 
 export function hours(ms: number) {
-  const minutes = Math.round(ms / 60000);
+  const minutes = Math.floor(ms / 60000);
   if (!minutes) return "0m";
   return [
     Math.floor(minutes / 60) + "h",

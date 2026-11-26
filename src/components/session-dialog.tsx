@@ -249,6 +249,7 @@ export function SessionDialog({
   );
   const from = start.selected?.instant,
     to = finish.selected?.instant;
+  const validInterval = !!from && !!to && Temporal.Instant.compare(from, to) < 0;
   const duration =
     from && to
       ? elapsed({ started_at: from, ended_at: to, voided_at: null })
@@ -265,7 +266,7 @@ export function SessionDialog({
     }
     if (
       (operation === "create" || operation === "edit") &&
-      (!from || (finish.value && !to) || (to && duration <= 0))
+      (!from || (finish.value && !to) || (to && !validInterval))
     ) {
       setError("Choose valid times with the finish after the start.");
       return;
@@ -484,7 +485,7 @@ export function SessionDialog({
                 required={!session || !!session.ended_at}
               />
               <strong>
-                Total hours · {duration > 0 ? hours(duration) : "—"}
+                Total hours · {validInterval ? hours(duration) : "—"}
               </strong>
               <label>
                 Note
